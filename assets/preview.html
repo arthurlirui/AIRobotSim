@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>body{margin:0;padding:0;background:#0a0e14;}</style>
+</head>
+<body>
+<div id="robot-sim-viz" style="width:100%; min-height:560px; position:relative;">
+  <style>
+    #rsv-canvas-wrap { width:100%; height:560px; border-radius:10px; overflow:hidden; background:#0a0e14; position:relative; }
+    #rsv-canvas { width:100%; height:100%; display:block; }
+    #rsv-overlay { position:absolute; top:10px; left:10px; right:10px; display:flex; justify-content:space-between; align-items:flex-start; pointer-events:none; z-index:5; }
+    #rsv-title { color:#e2e8f0; font-size:15px; font-weight:500; text-shadow:0 1px 4px rgba(0,0,0,.8); pointer-events:none; }
+    #rsv-stats { color:#94a3b8; font-size:12px; text-align:right; text-shadow:0 1px 4px rgba(0,0,0,.8); pointer-events:none; font-variant-numeric:tabular-nums; }
+    #rsv-controls { position:absolute; bottom:12px; left:50%; transform:translateX(-50%); display:flex; gap:8px; align-items:center; z-index:5; background:rgba(15,23,42,.85); padding:8px 16px; border-radius:24px; backdrop-filter:blur(8px); }
+    #rsv-controls button { background:rgba(51,65,85,.8); border:1px solid rgba(100,116,139,.4); color:#e2e8f0; border-radius:18px; padding:5px 14px; font-size:13px; cursor:pointer; transition:all .2s; }
+    #rsv-controls button:hover { background:rgba(71,85,105,.9); }
+    #rsv-slider { width:160px; accent-color:#3b82f6; }
+    #rsv-legend { position:absolute; bottom:12px; right:12px; display:flex; flex-direction:column; gap:4px; z-index:5; background:rgba(15,23,42,.85); padding:8px 12px; border-radius:8px; backdrop-filter:blur(8px); }
+    .rsv-legend-item { display:flex; align-items:center; gap:6px; color:#94a3b8; font-size:11px; }
+    .rsv-legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    #rsv-robot-tabs { position:absolute; top:38px; left:10px; display:flex; gap:6px; z-index:5; }
+    #rsv-robot-tabs button { background:rgba(30,41,59,.8); border:1px solid rgba(100,116,139,.3); color:#94a3b8; border-radius:14px; padding:3px 12px; font-size:12px; cursor:pointer; transition:all .2s; backdrop-filter:blur(4px); }
+    #rsv-robot-tabs button:hover { color:#e2e8f0; }
+    #rsv-robot-tabs button.active { background:rgba(59,130,246,.3); border-color:rgba(59,130,246,.6); color:#93c5fd; }
+    #rsv-axis-label { position:absolute; top:10px; left:50%; transform:translateX(-50%); color:#475569; font-size:11px; z-index:4; pointer-events:none; }
+  </style>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div id="rsv-canvas-wrap">
+      <canvas id="rsv-canvas"></canvas>
+      <div id="rsv-overlay">
+        <div id="rsv-title">3D Gaussian Splatting · 机器人运动仿真</div>
+        <div id="rsv-stats"></div>
+      </div>
+      <div id="rsv-axis-label">Right-Forward-Up · X(右) Y(前) Z(上) · 地面 Z=0</div>
+      <div id="rsv-robot-tabs">
+        <button class="active" data-robot="hexapod" type="button">六足 Hexplorer</button>
+        <button data-robot="quadruped" type="button">四足 Go2</button>
+        <button data-robot="biped" type="button">双足 G1</button>
+      </div>
+      <div id="rsv-controls">
+        <button id="rsv-play" type="button">⏸ 暂停</button>
+        <button id="rsv-reset" type="button">⟲ 重置</button>
+        <input type="range" id="rsv-slider" min="0" max="59" value="0" />
+        <span id="rsv-time" style="color:#64748b;font-size:12px;font-variant-numeric:tabular-nums;min-width:40px;">0.0s</span>
+      </div>
+      <div id="rsv-legend">
+        <div class="rsv-legend-item"><span class="rsv-legend-dot" style="background:#3b82f6;"></span>身体</div>
+        <div class="rsv-legend-item"><span class="rsv-legend-dot" style="background:#22c55e;"></span>支撑足</div>
+        <div class="rsv-legend-item"><span class="rsv-legend-dot" style="background:#f59e0b;"></span>摆动足</div>
+        <div class="rsv-legend-item"><span class="rsv-legend-dot" style="background:#475569;"></span>3DGS地形</div>
+      </div>
+    </div>
+  </div>
+
+  <script>const ANIM_DATA = {"fps":10,"nframes":60,"splats":[[-3.714,-3.714,0.023,0.3,0.6,0.2],[-3.714,-2.571,-0.287,0.3,0.6,0.2],[-3.714,-1.429,-0.597,0.3,0.6,0.2],[-3.714,-0.286,-0.217,0.3,0.6,0.2],[-3.714,0.857,-0.289,0.3,0.6,0.2],[-3.714,2.0,-0.304,0.3,0.6,0.2],[-3.714,3.143,-0.234,0.3,0.6,0.2],[-3.143,-3.714,0.14,0.3,0.6,0.2],[-3.143,-2.571,-0.189,0.3,0.6,0.2],[-3.143,-1.429,-0.272,0.3,0.6,0.2],[-3.143,-0.286,-0.425,0.3,0.6,0.2],[-3.143,0.857,-0.251,0.3,0.6,0.2],[-3.143,2.0,-0.379,0.3,0.6,0.2],[-3.143,3.143,-0.028,0.3,0.6,0.2],[-2.571,-3.714,0.246,0.3,0.6,0.2],[-2.571,-2.571,0.222,0.3,0.6,0.2],[-2.571,-1.429,-0.424,0.3,0.6,0.2],[-2.571,-0.286,-0.5,0.3,0.6,0.2],[-2.571,0.857,-0.512,0.3,0.6,0.2],[-2.571,2.0,-0.297,0.3,0.6,0.2],[-2.571,3.143,0.189,0.3,0.6,0.2],[-2.0,-3.714,0.191,0.3,0.6,0.2],[-2.0,-2.571,0.142,0.3,0.6,0.2],[-2.0,-1.429,-0.213,0.3,0.6,0.2],[-2.0,-0.286,-0.581,0.3,0.6,0.2],[-2.0,0.857,-0.5,0.3,0.6,0.2],[-2.0,2.0,-0.25,0.3,0.6,0.2],[-2.0,3.143,0.19,0.3,0.6,0.2],[-1.429,-3.714,0.233,0.3,0.6,0.2],[-1.429,-2.571,0.086,0.3,0.6,0.2],[-1.429,-1.429,-0.449,0.3,0.6,0.2],[-1.429,-0.286,-0.586,0.3,0.6,0.2],[-1.429,0.857,-0.387,0.3,0.6,0.2],[-1.429,2.0,-0.044,0.3,0.6,0.2],[-1.429,3.143,0.385,0.3,0.6,0.2],[-0.857,-3.714,0.023,0.3,0.6,0.2],[-0.857,-2.571,0.021,0.3,0.6,0.2],[-0.857,-1.429,-0.14,0.3,0.6,0.2],[-0.857,-0.286,-0.447,0.3,0.6,0.2],[-0.857,0.857,-0.231,0.3,0.6,0.2],[-0.857,2.0,0.06,0.3,0.6,0.2],[-0.857,3.143,0.146,0.3,0.6,0.2],[-0.286,-3.714,-0.116,0.3,0.6,0.2],[-0.286,-2.571,-0.064,0.3,0.6,0.2],[-0.286,-1.429,0.004,0.3,0.6,0.2],[-0.286,-0.286,-0.003,0.3,0.6,0.2],[-0.286,0.857,-0.123,0.3,0.6,0.2],[-0.286,2.0,-0.233,0.3,0.6,0.2],[-0.286,3.143,-0.146,0.3,0.6,0.2],[0.286,-3.714,-0.078,0.3,0.6,0.2],[0.286,-2.571,-0.196,0.3,0.6,0.2],[0.286,-1.429,0.011,0.3,0.6,0.2],[0.286,-0.286,0.129,0.3,0.6,0.2],[0.286,0.857,0.056,0.3,0.6,0.2],[0.286,2.0,0.033,0.3,0.6,0.2],[0.286,3.143,-0.119,0.3,0.6,0.2],[0.857,-3.714,-0.301,0.3,0.6,0.2],[0.857,-2.571,-0.21,0.3,0.6,0.2],[0.857,-1.429,0.185,0.3,0.6,0.2],[0.857,-0.286,0.675,0.3,0.6,0.2],[0.857,0.857,0.237,0.3,0.6,0.2],[0.857,2.0,-0.033,0.3,0.6,0.2],[0.857,3.143,-0.177,0.3,0.6,0.2],[1.429,-3.714,-0.076,0.3,0.6,0.2],[1.429,-2.571,-0.242,0.3,0.6,0.2],[1.429,-1.429,0.201,0.3,0.6,0.2],[1.429,-0.286,0.658,0.3,0.6,0.2],[1.429,0.857,0.281,0.3,0.6,0.2],[1.429,2.0,0.055,0.3,0.6,0.2],[1.429,3.143,-0.018,0.3,0.6,0.2],[2.0,-3.714,-0.144,0.3,0.6,0.2],[2.0,-2.571,-0.26,0.3,0.6,0.2],[2.0,-1.429,0.22,0.3,0.6,0.2],[2.0,-0.286,0.465,0.3,0.6,0.2],[2.0,0.857,0.586,0.3,0.6,0.2],[2.0,2.0,0.133,0.3,0.6,0.2],[2.0,3.143,-0.323,0.3,0.6,0.2],[2.571,-3.714,-0.099,0.3,0.6,0.2],[2.571,-2.571,0.22,0.3,0.6,0.2],[2.571,-1.429,0.303,0.3,0.6,0.2],[2.571,-0.286,0.29,0.3,0.6,0.2],[2.571,0.857,0.649,0.3,0.6,0.2],[2.571,2.0,0.403,0.3,0.6,0.2],[2.571,3.143,0.18,0.3,0.6,0.2],[3.143,-3.714,-0.019,0.3,0.6,0.2],[3.143,-2.571,0.291,0.3,0.6,0.2],[3.143,-1.429,0.323,0.3,0.6,0.2],[3.143,-0.286,0.113,0.3,0.6,0.2],[3.143,0.857,0.503,0.3,0.6,0.2],[3.143,2.0,0.397,0.3,0.6,0.2],[3.143,3.143,0.385,0.3,0.6,0.2],[3.714,-3.714,-0.009,0.3,0.6,0.2],[3.714,-2.571,0.471,0.3,0.6,0.2],[3.714,-1.429,0.385,0.3,0.6,0.2],[3.714,-0.286,0.026,0.3,0.6,0.2],[3.714,0.857,0.467,0.3,0.6,0.2],[3.714,2.0,0.39,0.3,0.6,0.2],[3.714,3.143,0.152,0.3,0.6,0.2]],"robots":{"hexapod":{"n":6,"h":{"leg_FL":[0.275,0.19,-0.02],"leg_ML":[0.0,0.19,-0.02],"leg_RL":[-0.275,0.19,-0.02],"leg_FR":[0.275,-0.19,-0.02],"leg_MR":[0.0,-0.19,-0.02],"leg_RR":[-0.275,-0.19,-0.02]},"frames":[{"b":[0.0,0.0,0.24],"f":{"leg_FL":[0.28,0.23,0.04],"leg_ML":[0.15,0.19,0.06],"leg_RL":[-0.3,0.19,0.12],"leg_FR":[0.3,-0.22,0.04],"leg_MR":[-0.05,-0.19,0.1],"leg_RR":[-0.24,-0.19,0.12]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.01,0.0,0.3],"f":{"leg_FL":[0.29,0.23,0.1],"leg_ML":[0.06,0.19,0.17],"leg_RL":[-0.29,0.19,0.19],"leg_FR":[0.31,-0.22,0.1],"leg_MR":[-0.02,-0.19,0.19],"leg_RR":[-0.23,-0.19,0.19]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.02,0.0,0.35],"f":{"leg_FL":[0.29,0.23,0.15],"leg_ML":[0.05,0.19,0.24],"leg_RL":[-0.24,0.19,0.23],"leg_FR":[0.31,-0.22,0.15],"leg_MR":[0.06,-0.19,0.22],"leg_RR":[-0.24,-0.19,0.23]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.03,0.0,0.4],"f":{"leg_FL":[0.3,0.23,0.2],"leg_ML":[-0.0,0.19,0.28],"leg_RL":[-0.22,0.19,0.28],"leg_FR":[0.32,-0.22,0.2],"leg_MR":[0.19,-0.19,0.22],"leg_RR":[-0.27,-0.19,0.28]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.04,0.0,0.43],"f":{"leg_FL":[0.31,0.23,0.23],"leg_ML":[-0.0,0.19,0.3],"leg_RL":[-0.19,0.19,0.28],"leg_FR":[0.33,-0.22,0.23],"leg_MR":[0.33,-0.19,0.32],"leg_RR":[-0.28,-0.19,0.28]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.04,0.0,0.46],"f":{"leg_FL":[0.59,0.19,0.33],"leg_ML":[-0.0,0.19,0.3],"leg_RL":[-0.19,0.19,0.28],"leg_FR":[0.04,-0.19,0.34],"leg_MR":[0.28,-0.19,0.3],"leg_RR":[-0.28,-0.19,0.28]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.05,0.0,0.49],"f":{"leg_FL":[0.55,0.19,0.32],"leg_ML":[0.02,0.19,0.36],"leg_RL":[-0.2,0.19,0.28],"leg_FR":[0.1,-0.19,0.32],"leg_MR":[0.17,-0.19,0.31],"leg_RR":[-0.25,-0.19,0.28]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.06,0.0,0.51],"f":{"leg_FL":[0.52,0.19,0.33],"leg_ML":[0.08,0.19,0.39],"leg_RL":[-0.21,0.19,0.28],"leg_FR":[0.53,-0.19,0.33],"leg_MR":[0.01,-0.19,0.37],"leg_RR":[-0.21,-0.19,0.28]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.07,0.0,0.52],"f":{"leg_FL":[0.19,0.19,0.34],"leg_ML":[0.1,0.19,0.41],"leg_RL":[-0.23,0.19,0.27],"leg_FR":[0.51,-0.19,0.34],"leg_MR":[0.04,-0.19,0.41],"leg_RR":[-0.18,-0.19,0.28]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.08,0.0,0.54],"f":{"leg_FL":[0.21,0.19,0.36],"leg_ML":[0.11,0.19,0.42],"leg_RL":[-0.24,0.19,0.27],"leg_FR":[0.5,-0.19,0.36],"leg_MR":[0.04,-0.19,0.42],"leg_RR":[-0.15,-0.19,0.29]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.08,0.0,0.55],"f":{"leg_FL":[0.23,0.19,0.37],"leg_ML":[0.12,0.19,0.43],"leg_RL":[-0.24,0.19,0.27],"leg_FR":[0.49,-0.19,0.37],"leg_MR":[0.05,-0.19,0.43],"leg_RR":[-0.15,-0.19,0.29]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.09,0.0,0.56],"f":{"leg_FL":[0.26,0.19,0.39],"leg_ML":[0.12,0.19,0.45],"leg_RL":[-0.21,0.19,0.27],"leg_FR":[0.48,-0.19,0.39],"leg_MR":[0.06,-0.19,0.45],"leg_RR":[-0.16,-0.19,0.29]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.1,0.0,0.58],"f":{"leg_FL":[0.47,0.19,0.41],"leg_ML":[0.08,0.19,0.46],"leg_RL":[-0.17,0.19,0.29],"leg_FR":[0.28,-0.19,0.41],"leg_MR":[0.2,-0.19,0.41],"leg_RR":[-0.17,-0.19,0.29]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.11,0.0,0.6],"f":{"leg_FL":[0.46,0.19,0.44],"leg_ML":[0.08,0.19,0.48],"leg_RL":[-0.14,0.19,0.31],"leg_FR":[0.31,-0.19,0.44],"leg_MR":[0.19,-0.19,0.44],"leg_RR":[-0.19,-0.19,0.28]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.12,0.0,0.62],"f":{"leg_FL":[0.45,0.19,0.48],"leg_ML":[0.08,0.19,0.48],"leg_RL":[-0.11,0.19,0.31],"leg_FR":[0.33,-0.19,0.48],"leg_MR":[0.18,-0.19,0.48],"leg_RR":[-0.19,-0.19,0.3]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.12,0.0,0.65],"f":{"leg_FL":[0.44,0.19,0.52],"leg_ML":[0.08,0.19,0.49],"leg_RL":[-0.1,0.19,0.34],"leg_FR":[0.35,-0.19,0.52],"leg_MR":[0.17,-0.19,0.52],"leg_RR":[-0.2,-0.19,0.34]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.13,0.0,0.67],"f":{"leg_FL":[0.44,0.19,0.56],"leg_ML":[0.1,0.19,0.52],"leg_RL":[-0.1,0.19,0.37],"leg_FR":[0.38,-0.19,0.56],"leg_MR":[0.16,-0.19,0.56],"leg_RR":[-0.17,-0.19,0.38]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.14,0.0,0.7],"f":{"leg_FL":[0.38,0.19,0.59],"leg_ML":[0.14,0.19,0.52],"leg_RL":[-0.09,0.19,0.39],"leg_FR":[0.45,-0.19,0.59],"leg_MR":[0.11,-0.19,0.59],"leg_RR":[-0.14,-0.19,0.41]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.15,0.0,0.73],"f":{"leg_FL":[0.39,0.19,0.62],"leg_ML":[0.18,0.19,0.52],"leg_RL":[-0.08,0.19,0.42],"leg_FR":[0.45,-0.19,0.62],"leg_MR":[0.12,-0.19,0.62],"leg_RR":[-0.1,-0.19,0.44]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.16,0.0,0.76],"f":{"leg_FL":[0.4,0.19,0.65],"leg_ML":[0.2,0.19,0.55],"leg_RL":[-0.07,0.19,0.45],"leg_FR":[0.46,-0.19,0.65],"leg_MR":[0.12,-0.19,0.65],"leg_RR":[-0.07,-0.19,0.45]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.16,0.0,0.79],"f":{"leg_FL":[0.41,0.19,0.68],"leg_ML":[0.2,0.19,0.55],"leg_RL":[-0.16,0.19,0.48],"leg_FR":[0.47,-0.19,0.68],"leg_MR":[0.13,-0.19,0.68],"leg_RR":[-0.06,-0.19,0.48]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.17,0.0,0.82],"f":{"leg_FL":[0.42,0.19,0.71],"leg_ML":[0.19,0.19,0.52],"leg_RL":[-0.13,0.19,0.53],"leg_FR":[0.48,-0.19,0.71],"leg_MR":[0.14,-0.19,0.71],"leg_RR":[-0.06,-0.19,0.52]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.18,0.0,0.86],"f":{"leg_FL":[0.46,0.19,0.74],"leg_ML":[0.18,0.19,0.52],"leg_RL":[-0.1,0.19,0.57],"leg_FR":[0.45,-0.19,0.74],"leg_MR":[0.18,-0.19,0.74],"leg_RR":[-0.05,-0.19,0.55]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.19,0.0,0.89],"f":{"leg_FL":[0.49,0.19,0.74],"leg_ML":[0.19,0.19,0.55],"leg_RL":[-0.06,0.19,0.59],"leg_FR":[0.44,-0.19,0.74],"leg_MR":[0.22,-0.19,0.74],"leg_RR":[-0.04,-0.19,0.58]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.2,0.0,0.91],"f":{"leg_FL":[0.52,0.19,0.74],"leg_ML":[0.2,0.19,0.58],"leg_RL":[-0.03,0.19,0.6],"leg_FR":[0.43,-0.19,0.74],"leg_MR":[0.24,-0.19,0.74],"leg_RR":[-0.03,-0.19,0.6]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.2,0.0,0.94],"f":{"leg_FL":[0.52,0.19,0.73],"leg_ML":[0.16,0.19,0.63],"leg_RL":[-0.02,0.19,0.63],"leg_FR":[0.43,-0.19,0.73],"leg_MR":[0.24,-0.19,0.73],"leg_RR":[-0.12,-0.19,0.63]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.21,0.0,0.95],"f":{"leg_FL":[0.51,0.19,0.73],"leg_ML":[0.18,0.19,0.66],"leg_RL":[-0.02,0.19,0.64],"leg_FR":[0.46,-0.19,0.73],"leg_MR":[0.23,-0.19,0.73],"leg_RR":[-0.09,-0.19,0.66]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.22,0.0,0.97],"f":{"leg_FL":[0.49,0.19,0.73],"leg_ML":[0.22,0.19,0.68],"leg_RL":[-0.01,0.19,0.66],"leg_FR":[0.49,-0.19,0.73],"leg_MR":[0.22,-0.19,0.73],"leg_RR":[-0.06,-0.19,0.68]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.23,0.0,0.98],"f":{"leg_FL":[0.48,0.19,0.73],"leg_ML":[0.26,0.19,0.68],"leg_RL":[0.0,0.19,0.67],"leg_FR":[0.53,-0.19,0.73],"leg_MR":[0.21,-0.19,0.73],"leg_RR":[-0.02,-0.19,0.68]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.24,0.0,0.99],"f":{"leg_FL":[0.47,0.19,0.73],"leg_ML":[0.28,0.19,0.71],"leg_RL":[0.01,0.19,0.68],"leg_FR":[0.56,-0.19,0.73],"leg_MR":[0.2,-0.19,0.73],"leg_RR":[0.01,-0.19,0.68]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.24,0.0,0.99],"f":{"leg_FL":[0.47,0.19,0.73],"leg_ML":[0.28,0.19,0.71],"leg_RL":[-0.08,0.19,0.68],"leg_FR":[0.56,-0.19,0.73],"leg_MR":[0.2,-0.19,0.73],"leg_RR":[0.02,-0.19,0.68]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.25,0.0,1.0],"f":{"leg_FL":[0.5,0.19,0.73],"leg_ML":[0.27,0.19,0.68],"leg_RL":[-0.05,0.19,0.7],"leg_FR":[0.55,-0.19,0.73],"leg_MR":[0.22,-0.19,0.73],"leg_RR":[0.02,-0.19,0.69]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.26,0.0,1.0],"f":{"leg_FL":[0.54,0.19,0.73],"leg_ML":[0.27,0.19,0.67],"leg_RL":[-0.01,0.19,0.71],"leg_FR":[0.54,-0.19,0.73],"leg_MR":[0.26,-0.19,0.73],"leg_RR":[0.03,-0.19,0.7]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.27,0.0,1.01],"f":{"leg_FL":[0.57,0.19,0.73],"leg_ML":[0.28,0.19,0.67],"leg_RL":[0.02,0.19,0.71],"leg_FR":[0.52,-0.19,0.73],"leg_MR":[0.3,-0.19,0.73],"leg_RR":[0.04,-0.19,0.7]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.28,0.0,1.01],"f":{"leg_FL":[0.6,0.19,0.73],"leg_ML":[0.29,0.19,0.68],"leg_RL":[0.05,0.19,0.7],"leg_FR":[0.51,-0.19,0.73],"leg_MR":[0.32,-0.19,0.73],"leg_RR":[0.05,-0.19,0.7]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.28,0.0,1.01],"f":{"leg_FL":[0.6,0.19,0.73],"leg_ML":[0.24,0.19,0.7],"leg_RL":[0.06,0.19,0.7],"leg_FR":[0.51,-0.19,0.73],"leg_MR":[0.32,-0.19,0.73],"leg_RR":[-0.04,-0.19,0.7]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.29,0.0,1.02],"f":{"leg_FL":[0.59,0.19,0.73],"leg_ML":[0.26,0.19,0.72],"leg_RL":[0.06,0.19,0.71],"leg_FR":[0.54,-0.19,0.73],"leg_MR":[0.31,-0.19,0.73],"leg_RR":[-0.01,-0.19,0.72]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.3,0.0,1.02],"f":{"leg_FL":[0.57,0.19,0.73],"leg_ML":[0.3,0.19,0.73],"leg_RL":[0.07,0.19,0.71],"leg_FR":[0.57,-0.19,0.73],"leg_MR":[0.3,-0.19,0.73],"leg_RR":[0.03,-0.19,0.73]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.31,0.0,1.02],"f":{"leg_FL":[0.56,0.19,0.73],"leg_ML":[0.34,0.19,0.72],"leg_RL":[0.08,0.19,0.71],"leg_FR":[0.61,-0.19,0.73],"leg_MR":[0.29,-0.19,0.73],"leg_RR":[0.06,-0.19,0.72]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.32,0.0,1.02],"f":{"leg_FL":[0.55,0.19,0.73],"leg_ML":[0.36,0.19,0.72],"leg_RL":[0.09,0.19,0.71],"leg_FR":[0.64,-0.19,0.73],"leg_MR":[0.28,-0.19,0.73],"leg_RR":[0.09,-0.19,0.72]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.32,0.0,1.02],"f":{"leg_FL":[0.55,0.19,0.73],"leg_ML":[0.36,0.19,0.72],"leg_RL":[0.0,0.19,0.71],"leg_FR":[0.64,-0.19,0.73],"leg_MR":[0.28,-0.19,0.73],"leg_RR":[0.09,-0.19,0.72]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.33,0.0,1.02],"f":{"leg_FL":[0.58,0.19,0.73],"leg_ML":[0.35,0.19,0.72],"leg_RL":[0.03,0.19,0.73],"leg_FR":[0.63,-0.19,0.73],"leg_MR":[0.3,-0.19,0.73],"leg_RR":[0.09,-0.19,0.7]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.34,0.0,1.02],"f":{"leg_FL":[0.61,0.19,0.73],"leg_ML":[0.34,0.19,0.72],"leg_RL":[0.07,0.19,0.73],"leg_FR":[0.61,-0.19,0.73],"leg_MR":[0.34,-0.19,0.73],"leg_RR":[0.1,-0.19,0.7]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.35,0.0,1.02],"f":{"leg_FL":[0.65,0.19,0.73],"leg_ML":[0.33,0.19,0.72],"leg_RL":[0.1,0.19,0.73],"leg_FR":[0.6,-0.19,0.73],"leg_MR":[0.38,-0.19,0.73],"leg_RR":[0.1,-0.19,0.7]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.36,0.0,1.02],"f":{"leg_FL":[0.68,0.19,0.72],"leg_ML":[0.32,0.19,0.72],"leg_RL":[0.13,0.19,0.71],"leg_FR":[0.59,-0.19,0.72],"leg_MR":[0.4,-0.19,0.72],"leg_RR":[0.11,-0.19,0.7]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.36,0.0,1.02],"f":{"leg_FL":[0.68,0.19,0.72],"leg_ML":[0.32,0.19,0.72],"leg_RL":[0.14,0.19,0.71],"leg_FR":[0.59,-0.19,0.72],"leg_MR":[0.4,-0.19,0.72],"leg_RR":[0.04,-0.19,0.71]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.37,0.0,1.02],"f":{"leg_FL":[0.67,0.19,0.72],"leg_ML":[0.34,0.19,0.73],"leg_RL":[0.14,0.19,0.71],"leg_FR":[0.62,-0.19,0.73],"leg_MR":[0.39,-0.19,0.72],"leg_RR":[0.07,-0.19,0.73]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.38,0.0,1.02],"f":{"leg_FL":[0.66,0.19,0.72],"leg_ML":[0.38,0.19,0.73],"leg_RL":[0.15,0.19,0.71],"leg_FR":[0.66,-0.19,0.73],"leg_MR":[0.38,-0.19,0.72],"leg_RR":[0.1,-0.19,0.73]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.39,0.0,1.02],"f":{"leg_FL":[0.64,0.19,0.72],"leg_ML":[0.42,0.19,0.73],"leg_RL":[0.16,0.19,0.71],"leg_FR":[0.69,-0.19,0.73],"leg_MR":[0.37,-0.19,0.72],"leg_RR":[0.14,-0.19,0.73]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.4,0.0,1.02],"f":{"leg_FL":[0.63,0.19,0.72],"leg_ML":[0.44,0.19,0.72],"leg_RL":[0.17,0.19,0.72],"leg_FR":[0.72,-0.19,0.72],"leg_MR":[0.36,-0.19,0.72],"leg_RR":[0.17,-0.19,0.72]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.4,0.0,1.02],"f":{"leg_FL":[0.63,0.19,0.72],"leg_ML":[0.44,0.19,0.72],"leg_RL":[0.08,0.19,0.72],"leg_FR":[0.72,-0.19,0.72],"leg_MR":[0.36,-0.19,0.72],"leg_RR":[0.17,-0.19,0.72]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.41,0.0,1.02],"f":{"leg_FL":[0.66,0.19,0.73],"leg_ML":[0.43,0.19,0.72],"leg_RL":[0.11,0.19,0.73],"leg_FR":[0.71,-0.19,0.72],"leg_MR":[0.38,-0.19,0.73],"leg_RR":[0.16,-0.19,0.72]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.42,0.0,1.02],"f":{"leg_FL":[0.69,0.19,0.73],"leg_ML":[0.42,0.19,0.72],"leg_RL":[0.14,0.19,0.73],"leg_FR":[0.69,-0.19,0.72],"leg_MR":[0.42,-0.19,0.73],"leg_RR":[0.14,-0.19,0.72]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.43,0.0,1.02],"f":{"leg_FL":[0.73,0.19,0.73],"leg_ML":[0.41,0.19,0.72],"leg_RL":[0.18,0.19,0.73],"leg_FR":[0.68,-0.19,0.72],"leg_MR":[0.46,-0.19,0.73],"leg_RR":[0.13,-0.19,0.72]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.44,0.0,1.02],"f":{"leg_FL":[0.76,0.19,0.72],"leg_ML":[0.4,0.19,0.72],"leg_RL":[0.21,0.19,0.72],"leg_FR":[0.67,-0.19,0.72],"leg_MR":[0.48,-0.19,0.72],"leg_RR":[0.12,-0.19,0.72]},"c":{"leg_FL":false,"leg_ML":true,"leg_RL":false,"leg_FR":true,"leg_MR":false,"leg_RR":true}},{"b":[0.44,0.0,1.02],"f":{"leg_FL":[0.76,0.19,0.72],"leg_ML":[0.4,0.19,0.72],"leg_RL":[0.22,0.19,0.72],"leg_FR":[0.67,-0.19,0.72],"leg_MR":[0.48,-0.19,0.72],"leg_RR":[0.12,-0.19,0.72]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.45,0.0,1.02],"f":{"leg_FL":[0.75,0.19,0.72],"leg_ML":[0.42,0.19,0.73],"leg_RL":[0.22,0.19,0.72],"leg_FR":[0.7,-0.19,0.73],"leg_MR":[0.47,-0.19,0.72],"leg_RR":[0.15,-0.19,0.73]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.46,0.0,1.02],"f":{"leg_FL":[0.73,0.19,0.72],"leg_ML":[0.46,0.19,0.73],"leg_RL":[0.23,0.19,0.72],"leg_FR":[0.73,-0.19,0.73],"leg_MR":[0.46,-0.19,0.72],"leg_RR":[0.18,-0.19,0.73]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.47,0.0,1.02],"f":{"leg_FL":[0.72,0.19,0.72],"leg_ML":[0.5,0.19,0.73],"leg_RL":[0.24,0.19,0.72],"leg_FR":[0.77,-0.19,0.73],"leg_MR":[0.45,-0.19,0.72],"leg_RR":[0.22,-0.19,0.73]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}},{"b":[0.48,0.0,1.02],"f":{"leg_FL":[0.71,0.19,0.72],"leg_ML":[0.52,0.19,0.72],"leg_RL":[0.25,0.19,0.72],"leg_FR":[0.8,-0.19,0.72],"leg_MR":[0.44,-0.19,0.72],"leg_RR":[0.25,-0.19,0.72]},"c":{"leg_FL":true,"leg_ML":false,"leg_RL":true,"leg_FR":false,"leg_MR":true,"leg_RR":false}}]},"quadruped":{"n":4,"h":{"leg_FL":[0.2,0.11,-0.03],"leg_FR":[0.2,-0.11,-0.03],"leg_RL":[-0.2,0.11,-0.03],"leg_RR":[-0.2,-0.11,-0.03]},"frames":[{"b":[0.0,0.0,0.37],"f":{"leg_FL":[0.39,0.32,0.24],"leg_FR":[0.2,-0.11,0.02],"leg_RL":[-0.18,0.11,0.27],"leg_RR":[-0.19,-0.1,0.27]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.01,0.0,0.41],"f":{"leg_FL":[0.42,0.34,0.32],"leg_FR":[0.21,-0.11,0.06],"leg_RL":[-0.18,0.11,0.28],"leg_RR":[-0.18,-0.1,0.28]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.02,0.0,0.43],"f":{"leg_FL":[0.52,0.11,0.32],"leg_FR":[0.22,-0.11,0.08],"leg_RL":[-0.17,0.12,0.28],"leg_RR":[-0.16,-0.11,0.28]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.03,0.0,0.46],"f":{"leg_FL":[0.51,0.11,0.33],"leg_FR":[0.43,0.11,0.35],"leg_RL":[-0.15,0.14,0.28],"leg_RR":[-0.13,-0.11,0.28]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.04,0.0,0.48],"f":{"leg_FL":[0.48,0.11,0.31],"leg_FR":[0.41,0.09,0.33],"leg_RL":[-0.13,0.14,0.28],"leg_RR":[-0.13,-0.11,0.28]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.04,0.0,0.49],"f":{"leg_FL":[0.44,0.11,0.31],"leg_FR":[0.39,0.06,0.32],"leg_RL":[-0.14,0.12,0.27],"leg_RR":[-0.14,-0.11,0.27]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.05,0.0,0.51],"f":{"leg_FL":[0.36,0.23,0.32],"leg_FR":[0.45,-0.11,0.32],"leg_RL":[-0.13,0.11,0.27],"leg_RR":[-0.14,-0.1,0.27]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.06,0.0,0.52],"f":{"leg_FL":[0.35,0.21,0.33],"leg_FR":[0.45,-0.11,0.33],"leg_RL":[-0.09,0.11,0.27],"leg_RR":[-0.12,-0.08,0.27]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.07,0.0,0.53],"f":{"leg_FL":[0.35,0.2,0.35],"leg_FR":[0.44,-0.11,0.34],"leg_RL":[-0.09,0.11,0.27],"leg_RR":[-0.1,-0.08,0.27]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.08,0.0,0.54],"f":{"leg_FL":[0.36,0.21,0.35],"leg_FR":[0.43,-0.11,0.35],"leg_RL":[-0.11,0.11,0.27],"leg_RR":[-0.11,-0.1,0.27]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.08,0.0,0.55],"f":{"leg_FL":[0.42,0.11,0.36],"leg_FR":[0.38,-0.01,0.36],"leg_RL":[-0.11,0.12,0.27],"leg_RR":[-0.1,-0.11,0.27]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.09,0.0,0.56],"f":{"leg_FL":[0.43,0.11,0.37],"leg_FR":[0.38,-0.01,0.37],"leg_RL":[-0.08,0.14,0.27],"leg_RR":[-0.06,-0.11,0.27]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.1,0.0,0.57],"f":{"leg_FL":[0.42,0.11,0.39],"leg_FR":[0.38,-0.02,0.39],"leg_RL":[-0.07,0.14,0.27],"leg_RR":[-0.06,-0.11,0.27]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.11,0.0,0.59],"f":{"leg_FL":[0.4,0.11,0.41],"leg_FR":[0.37,-0.04,0.41],"leg_RL":[-0.08,0.12,0.29],"leg_RR":[-0.08,-0.11,0.28]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.12,0.0,0.61],"f":{"leg_FL":[0.37,0.17,0.45],"leg_FR":[0.39,-0.11,0.44],"leg_RL":[-0.07,0.11,0.31],"leg_RR":[-0.08,-0.1,0.28]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.12,0.0,0.63],"f":{"leg_FL":[0.36,0.15,0.48],"leg_FR":[0.39,-0.11,0.48],"leg_RL":[-0.03,0.11,0.32],"leg_RR":[-0.06,-0.09,0.29]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.13,0.0,0.66],"f":{"leg_FL":[0.36,0.14,0.52],"leg_FR":[0.37,-0.11,0.52],"leg_RL":[-0.02,0.11,0.34],"leg_RR":[-0.04,-0.08,0.34]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.14,0.0,0.69],"f":{"leg_FL":[0.35,0.13,0.58],"leg_FR":[0.36,-0.11,0.58],"leg_RL":[-0.01,0.11,0.37],"leg_RR":[-0.05,-0.1,0.39]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.15,0.0,0.72],"f":{"leg_FL":[0.36,0.11,0.62],"leg_FR":[0.36,-0.1,0.62],"leg_RL":[-0.01,0.11,0.4],"leg_RR":[-0.03,-0.11,0.41]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.16,0.0,0.75],"f":{"leg_FL":[0.37,0.11,0.65],"leg_FR":[0.37,-0.1,0.65],"leg_RL":[0.0,0.11,0.43],"leg_RR":[0.0,-0.11,0.43]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.16,0.0,0.78],"f":{"leg_FL":[0.38,0.11,0.68],"leg_FR":[0.37,-0.1,0.68],"leg_RL":[-0.01,0.14,0.46],"leg_RR":[0.01,-0.11,0.46]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.17,0.0,0.81],"f":{"leg_FL":[0.39,0.11,0.71],"leg_FR":[0.38,-0.1,0.71],"leg_RL":[-0.02,0.12,0.5],"leg_RR":[0.02,-0.11,0.49]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.18,0.0,0.84],"f":{"leg_FL":[0.39,0.12,0.74],"leg_FR":[0.4,-0.11,0.74],"leg_RL":[-0.0,0.11,0.54],"leg_RR":[0.03,-0.11,0.52]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.19,0.0,0.87],"f":{"leg_FL":[0.41,0.14,0.74],"leg_FR":[0.43,-0.11,0.74],"leg_RL":[0.03,0.11,0.55],"leg_RR":[0.03,-0.11,0.55]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.2,0.0,0.89],"f":{"leg_FL":[0.43,0.14,0.74],"leg_FR":[0.43,-0.11,0.74],"leg_RL":[0.04,0.11,0.58],"leg_RR":[0.03,-0.08,0.58]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.2,0.0,0.92],"f":{"leg_FL":[0.42,0.12,0.73],"leg_FR":[0.42,-0.11,0.73],"leg_RL":[0.05,0.11,0.6],"leg_RR":[0.02,-0.1,0.61]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.21,0.0,0.93],"f":{"leg_FL":[0.43,0.11,0.73],"leg_FR":[0.42,-0.1,0.73],"leg_RL":[0.06,0.11,0.62],"leg_RR":[0.03,-0.11,0.63]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.22,0.0,0.95],"f":{"leg_FL":[0.47,0.11,0.73],"leg_FR":[0.45,-0.08,0.73],"leg_RL":[0.07,0.11,0.63],"leg_RR":[0.07,-0.11,0.63]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.23,0.0,0.96],"f":{"leg_FL":[0.47,0.11,0.73],"leg_FR":[0.46,-0.08,0.73],"leg_RL":[0.06,0.14,0.64],"leg_RR":[0.08,-0.11,0.65]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.24,0.0,0.97],"f":{"leg_FL":[0.45,0.11,0.73],"leg_FR":[0.45,-0.1,0.73],"leg_RL":[0.05,0.12,0.66],"leg_RR":[0.09,-0.11,0.66]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.24,0.0,0.97],"f":{"leg_FL":[0.45,0.12,0.73],"leg_FR":[0.46,-0.11,0.73],"leg_RL":[0.06,0.11,0.67],"leg_RR":[0.09,-0.11,0.66]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.25,0.0,0.98],"f":{"leg_FL":[0.48,0.14,0.73],"leg_FR":[0.5,-0.11,0.73],"leg_RL":[0.1,0.11,0.66],"leg_RR":[0.1,-0.11,0.67]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.26,0.0,0.98],"f":{"leg_FL":[0.49,0.14,0.73],"leg_FR":[0.5,-0.11,0.73],"leg_RL":[0.11,0.11,0.67],"leg_RR":[0.09,-0.08,0.67]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.27,0.0,0.99],"f":{"leg_FL":[0.48,0.12,0.73],"leg_FR":[0.48,-0.11,0.73],"leg_RL":[0.11,0.11,0.67],"leg_RR":[0.08,-0.1,0.69]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.28,0.0,0.99],"f":{"leg_FL":[0.49,0.11,0.73],"leg_FR":[0.48,-0.1,0.73],"leg_RL":[0.12,0.11,0.67],"leg_RR":[0.09,-0.11,0.71]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.28,0.0,0.99],"f":{"leg_FL":[0.53,0.11,0.73],"leg_FR":[0.51,-0.08,0.73],"leg_RL":[0.13,0.11,0.68],"leg_RR":[0.13,-0.11,0.71]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.29,0.0,1.0],"f":{"leg_FL":[0.53,0.11,0.73],"leg_FR":[0.52,-0.08,0.73],"leg_RL":[0.12,0.14,0.68],"leg_RR":[0.13,-0.11,0.71]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.3,0.0,1.0],"f":{"leg_FL":[0.51,0.11,0.73],"leg_FR":[0.51,-0.1,0.73],"leg_RL":[0.11,0.12,0.7],"leg_RR":[0.11,-0.11,0.71]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.31,0.0,1.0],"f":{"leg_FL":[0.52,0.12,0.73],"leg_FR":[0.53,-0.11,0.73],"leg_RL":[0.13,0.11,0.7],"leg_RR":[0.12,-0.1,0.71]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.32,0.0,1.0],"f":{"leg_FL":[0.54,0.14,0.73],"leg_FR":[0.56,-0.11,0.73],"leg_RL":[0.16,0.11,0.68],"leg_RR":[0.14,-0.08,0.66]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.32,0.0,1.0],"f":{"leg_FL":[0.55,0.14,0.73],"leg_FR":[0.56,-0.11,0.73],"leg_RL":[0.17,0.11,0.68],"leg_RR":[0.15,-0.08,0.68]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.33,0.0,1.0],"f":{"leg_FL":[0.54,0.12,0.73],"leg_FR":[0.54,-0.11,0.73],"leg_RL":[0.18,0.11,0.68],"leg_RR":[0.14,-0.1,0.71]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.34,0.0,1.0],"f":{"leg_FL":[0.56,0.11,0.73],"leg_FR":[0.55,-0.1,0.73],"leg_RL":[0.19,0.11,0.69],"leg_RR":[0.16,-0.11,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.35,0.0,1.0],"f":{"leg_FL":[0.59,0.11,0.73],"leg_FR":[0.57,-0.08,0.73],"leg_RL":[0.19,0.11,0.69],"leg_RR":[0.19,-0.11,0.73]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.36,0.0,1.0],"f":{"leg_FL":[0.59,0.11,0.72],"leg_FR":[0.59,-0.08,0.72],"leg_RL":[0.19,0.14,0.69],"leg_RR":[0.19,-0.11,0.72]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.36,0.0,1.0],"f":{"leg_FL":[0.58,0.11,0.72],"leg_FR":[0.58,-0.1,0.72],"leg_RL":[0.18,0.12,0.7],"leg_RR":[0.18,-0.11,0.72]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.37,0.0,1.0],"f":{"leg_FL":[0.58,0.12,0.72],"leg_FR":[0.59,-0.11,0.72],"leg_RL":[0.19,0.11,0.7],"leg_RR":[0.18,-0.1,0.72]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.38,0.0,1.0],"f":{"leg_FL":[0.6,0.14,0.72],"leg_FR":[0.63,-0.11,0.72],"leg_RL":[0.23,0.11,0.69],"leg_RR":[0.2,-0.08,0.72]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.39,0.0,1.0],"f":{"leg_FL":[0.62,0.14,0.72],"leg_FR":[0.63,-0.11,0.72],"leg_RL":[0.23,0.11,0.69],"leg_RR":[0.22,-0.08,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.4,0.0,1.0],"f":{"leg_FL":[0.61,0.12,0.72],"leg_FR":[0.61,-0.11,0.72],"leg_RL":[0.21,0.11,0.68],"leg_RR":[0.21,-0.1,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.4,0.0,1.0],"f":{"leg_FL":[0.62,0.11,0.72],"leg_FR":[0.61,-0.1,0.72],"leg_RL":[0.21,0.12,0.67],"leg_RR":[0.22,-0.11,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.41,0.0,1.0],"f":{"leg_FL":[0.66,0.11,0.72],"leg_FR":[0.64,-0.08,0.72],"leg_RL":[0.23,0.13,0.66],"leg_RR":[0.26,-0.11,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.42,0.0,1.0],"f":{"leg_FL":[0.66,0.11,0.72],"leg_FR":[0.65,-0.08,0.72],"leg_RL":[0.25,0.14,0.69],"leg_RR":[0.26,-0.11,0.72]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.43,0.0,1.0],"f":{"leg_FL":[0.64,0.11,0.72],"leg_FR":[0.64,-0.1,0.72],"leg_RL":[0.24,0.12,0.7],"leg_RR":[0.24,-0.11,0.72]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.44,0.0,1.0],"f":{"leg_FL":[0.64,0.12,0.72],"leg_FR":[0.65,-0.11,0.72],"leg_RL":[0.25,0.11,0.71],"leg_RR":[0.24,-0.1,0.72]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.44,0.0,1.0],"f":{"leg_FL":[0.67,0.14,0.72],"leg_FR":[0.69,-0.11,0.72],"leg_RL":[0.29,0.11,0.72],"leg_RR":[0.27,-0.08,0.72]},"c":{"leg_FL":true,"leg_FR":false,"leg_RL":false,"leg_RR":true}},{"b":[0.45,0.0,1.0],"f":{"leg_FL":[0.68,0.14,0.72],"leg_FR":[0.69,-0.11,0.72],"leg_RL":[0.29,0.11,0.72],"leg_RR":[0.28,-0.08,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.46,0.0,1.0],"f":{"leg_FL":[0.67,0.12,0.72],"leg_FR":[0.67,-0.11,0.72],"leg_RL":[0.27,0.11,0.72],"leg_RR":[0.27,-0.1,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.47,0.0,1.0],"f":{"leg_FL":[0.69,0.11,0.72],"leg_FR":[0.68,-0.1,0.72],"leg_RL":[0.28,0.12,0.71],"leg_RR":[0.29,-0.11,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}},{"b":[0.48,0.0,1.0],"f":{"leg_FL":[0.72,0.11,0.72],"leg_FR":[0.7,-0.08,0.72],"leg_RL":[0.3,0.14,0.7],"leg_RR":[0.32,-0.11,0.72]},"c":{"leg_FL":false,"leg_FR":true,"leg_RL":true,"leg_RR":false}}]},"biped":{"n":2,"h":{"leg_L":[0.0,0.12,-0.08],"leg_R":[0.0,-0.12,-0.08]},"frames":[{"b":[0.0,0.0,0.91],"f":{"leg_L":[-0.03,0.13,0.54],"leg_R":[0.04,-0.12,0.51]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.01,0.0,0.93],"f":{"leg_L":[-0.03,0.13,0.56],"leg_R":[0.03,-0.12,0.49]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.01,0.0,0.94],"f":{"leg_L":[-0.02,0.13,0.59],"leg_R":[0.03,-0.12,0.47]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.01,0.0,0.95],"f":{"leg_L":[-0.0,0.13,0.6],"leg_R":[0.03,-0.12,0.45]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.02,0.0,0.96],"f":{"leg_L":[0.01,0.12,0.61],"leg_R":[0.02,-0.12,0.43]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.02,0.0,0.97],"f":{"leg_L":[0.03,0.12,0.62],"leg_R":[0.02,-0.12,0.41]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.03,0.0,0.97],"f":{"leg_L":[0.04,0.12,0.63],"leg_R":[0.01,-0.12,0.39]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.03,0.0,0.98],"f":{"leg_L":[0.06,0.12,0.63],"leg_R":[0.01,-0.11,0.37]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.03,0.0,0.98],"f":{"leg_L":[0.07,0.12,0.62],"leg_R":[0.01,-0.11,0.35]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.04,0.0,0.99],"f":{"leg_L":[0.08,0.12,0.61],"leg_R":[0.0,-0.11,0.34]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.04,0.0,0.99],"f":{"leg_L":[0.08,0.12,0.48],"leg_R":[0.01,-0.11,0.62]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.05,0.0,0.99],"f":{"leg_L":[0.07,0.12,0.47],"leg_R":[0.01,-0.11,0.63]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.05,0.0,1.0],"f":{"leg_L":[0.07,0.12,0.46],"leg_R":[0.02,-0.11,0.64]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.05,0.0,1.0],"f":{"leg_L":[0.07,0.12,0.45],"leg_R":[0.04,-0.11,0.65]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.06,0.0,1.0],"f":{"leg_L":[0.06,0.12,0.44],"leg_R":[0.05,-0.12,0.66]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.06,0.0,1.0],"f":{"leg_L":[0.06,0.12,0.43],"leg_R":[0.07,-0.12,0.66]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.07,0.0,1.01],"f":{"leg_L":[0.05,0.12,0.42],"leg_R":[0.08,-0.12,0.71]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.07,0.0,1.01],"f":{"leg_L":[0.05,0.13,0.42],"leg_R":[0.1,-0.12,0.73]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.07,0.0,1.01],"f":{"leg_L":[0.05,0.13,0.41],"leg_R":[0.11,-0.12,0.73]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.08,0.0,1.01],"f":{"leg_L":[0.04,0.13,0.4],"leg_R":[0.12,-0.12,0.73]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.08,0.0,1.01],"f":{"leg_L":[0.05,0.13,0.64],"leg_R":[0.12,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.09,0.0,1.01],"f":{"leg_L":[0.05,0.13,0.65],"leg_R":[0.11,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.09,0.0,1.02],"f":{"leg_L":[0.06,0.13,0.66],"leg_R":[0.11,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.09,0.0,1.02],"f":{"leg_L":[0.08,0.13,0.68],"leg_R":[0.11,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.1,0.0,1.03],"f":{"leg_L":[0.09,0.12,0.69],"leg_R":[0.1,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.1,0.0,1.04],"f":{"leg_L":[0.11,0.12,0.7],"leg_R":[0.1,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.11,0.0,1.05],"f":{"leg_L":[0.12,0.12,0.71],"leg_R":[0.09,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.11,0.0,1.07],"f":{"leg_L":[0.14,0.12,0.71],"leg_R":[0.09,-0.11,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.11,0.0,1.08],"f":{"leg_L":[0.15,0.12,0.72],"leg_R":[0.09,-0.11,0.72]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.12,0.0,1.09],"f":{"leg_L":[0.16,0.12,0.72],"leg_R":[0.08,-0.11,0.71]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.12,0.0,1.11],"f":{"leg_L":[0.16,0.12,0.61],"leg_R":[0.09,-0.11,0.74]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.13,0.0,1.12],"f":{"leg_L":[0.15,0.12,0.61],"leg_R":[0.09,-0.11,0.76]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.13,0.0,1.14],"f":{"leg_L":[0.15,0.12,0.6],"leg_R":[0.1,-0.11,0.79]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.13,0.0,1.15],"f":{"leg_L":[0.15,0.12,0.6],"leg_R":[0.12,-0.11,0.81]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.14,0.0,1.17],"f":{"leg_L":[0.14,0.12,0.59],"leg_R":[0.13,-0.12,0.83]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.14,0.0,1.19],"f":{"leg_L":[0.14,0.12,0.58],"leg_R":[0.15,-0.12,0.84]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.15,0.0,1.2],"f":{"leg_L":[0.13,0.12,0.58],"leg_R":[0.16,-0.12,0.86]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.15,0.0,1.22],"f":{"leg_L":[0.13,0.13,0.57],"leg_R":[0.18,-0.12,0.87]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.15,0.0,1.24],"f":{"leg_L":[0.13,0.13,0.57],"leg_R":[0.19,-0.12,0.87]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.16,0.0,1.25],"f":{"leg_L":[0.13,0.13,0.58],"leg_R":[0.2,-0.12,0.88]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.16,0.0,1.27],"f":{"leg_L":[0.13,0.13,0.9],"leg_R":[0.2,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.17,0.0,1.29],"f":{"leg_L":[0.13,0.13,0.92],"leg_R":[0.19,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.17,0.0,1.3],"f":{"leg_L":[0.14,0.13,0.95],"leg_R":[0.19,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.17,0.0,1.32],"f":{"leg_L":[0.16,0.13,0.97],"leg_R":[0.19,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.18,0.0,1.34],"f":{"leg_L":[0.17,0.12,0.99],"leg_R":[0.18,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.18,0.0,1.35],"f":{"leg_L":[0.19,0.12,1.01],"leg_R":[0.18,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.19,0.0,1.37],"f":{"leg_L":[0.2,0.12,1.02],"leg_R":[0.17,-0.12,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.19,0.0,1.38],"f":{"leg_L":[0.22,0.12,1.03],"leg_R":[0.17,-0.11,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.19,0.0,1.4],"f":{"leg_L":[0.23,0.12,1.03],"leg_R":[0.17,-0.11,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.2,0.0,1.41],"f":{"leg_L":[0.24,0.12,1.03],"leg_R":[0.17,-0.11,0.73]},"c":{"leg_L":false,"leg_R":true}},{"b":[0.2,0.0,1.41],"f":{"leg_L":[0.24,0.12,1.04],"leg_R":[0.17,-0.11,1.04]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.21,0.0,1.42],"f":{"leg_L":[0.25,0.12,1.05],"leg_R":[0.17,-0.11,1.06]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.21,0.0,1.42],"f":{"leg_L":[0.25,0.12,1.05],"leg_R":[0.18,-0.11,1.07]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.21,0.0,1.43],"f":{"leg_L":[0.25,0.12,1.05],"leg_R":[0.2,-0.11,1.08]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.22,0.0,1.43],"f":{"leg_L":[0.26,0.12,1.06],"leg_R":[0.21,-0.12,1.09]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.22,0.0,1.43],"f":{"leg_L":[0.26,0.12,1.06],"leg_R":[0.23,-0.12,1.09]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.23,0.0,1.44],"f":{"leg_L":[0.27,0.12,1.06],"leg_R":[0.24,-0.12,1.09]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.23,0.0,1.44],"f":{"leg_L":[0.27,0.12,1.06],"leg_R":[0.26,-0.12,1.08]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.23,0.0,1.44],"f":{"leg_L":[0.27,0.12,1.07],"leg_R":[0.27,-0.12,1.08]},"c":{"leg_L":true,"leg_R":false}},{"b":[0.24,0.0,1.44],"f":{"leg_L":[0.28,0.12,1.07],"leg_R":[0.28,-0.12,1.07]},"c":{"leg_L":true,"leg_R":false}}]}}};</script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script>
+  (function() {
+    var DATA = ANIM_DATA;
+    var canvas = document.getElementById('rsv-canvas');
+    var wrap = document.getElementById('rsv-canvas-wrap');
+    var statsEl = document.getElementById('rsv-stats');
+    var timeEl = document.getElementById('rsv-time');
+    var slider = document.getElementById('rsv-slider');
+    var playBtn = document.getElementById('rsv-play');
+    var resetBtn = document.getElementById('rsv-reset');
+    var tabBtns = document.querySelectorAll('#rsv-robot-tabs button');
+
+    // ================================================================
+    // Coordinate system: Right-Forward-Up (X=Right, Y=Forward, Z=Up)
+    // Ground plane is Z=0. Robot moves on this plane.
+    //
+    // Our simulation data uses X=forward, Y=left, Z=up.
+    // We remap sim→RFU:  RFU_X = sim_Y,  RFU_Y = sim_X,  RFU_Z = sim_Z
+    // (sim forward→RFU forward=Y, sim left→RFU right=X)
+    // ================================================================
+
+    function sim2rfu(x, y, z) {
+      // sim (X=forward, Y=left, Z=up) → RFU (X=right, Y=forward, Z=up)
+      return [y, x, z];
+    }
+
+    // ---- Three.js setup ----
+    // We use Three.js in its native Y-up mode but position the camera
+    // so that Z appears as the vertical (up) axis on screen.
+    // Setting scene.up = (0,0,1) tells Three.js that Z is up.
+    var scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0e14);
+    scene.fog = new THREE.Fog(0x0a0e14, 10, 25);
+
+    // Tell Three.js Z is up (not the default Y)
+    scene.up.set(0, 0, 1);
+
+    var camera = new THREE.PerspectiveCamera(55, wrap.clientWidth / wrap.clientHeight, 0.1, 100);
+    camera.up.set(0, 0, 1);  // Camera also uses Z-up
+
+    var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+
+    // ---- Lights ----
+    scene.add(new THREE.AmbientLight(0x6080a0, 0.6));
+    var dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(3, -5, 8);  // Light from above-front-right in RFU
+    scene.add(dirLight);
+    scene.add(new THREE.HemisphereLight(0x8899bb, 0x223344, 0.4));
+
+    // ---- Ground grid at Z=0 (XY plane) ----
+    // Built directly in RFU coordinates: X=right, Y=forward, Z=up.
+    // Grid lines in the XY plane at Z=0.
+    var gridMat = new THREE.LineBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.5 });
+    var gridPts = [];
+    var gridSize = 8, gridDiv = 16, gridStep = gridSize / gridDiv;
+    for (var i = 0; i <= gridDiv; i++) {
+      var v = -gridSize / 2 + i * gridStep;
+      // Lines along Y (forward direction) at various X
+      gridPts.push(new THREE.Vector3(v, -gridSize/2, 0), new THREE.Vector3(v, gridSize/2, 0));
+      // Lines along X (right direction) at various Y
+      gridPts.push(new THREE.Vector3(-gridSize/2, v, 0), new THREE.Vector3(gridSize/2, v, 0));
+    }
+    var gridGeo = new THREE.BufferGeometry().setFromPoints(gridPts);
+    var grid = new THREE.LineSegments(gridGeo, gridMat);
+    grid.position.z = -0.7;  // Just below the lowest terrain
+    scene.add(grid);
+
+    // ---- Axes helper at origin: X=red(right), Y=green(forward), Z=blue(up) ----
+    // Custom axes with labels via colored lines
+    var axisLen = 0.8;
+    var xAxisGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(axisLen,0,0)]);
+    var yAxisGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,axisLen,0)]);
+    var zAxisGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,axisLen)]);
+    scene.add(new THREE.Line(xAxisGeo, new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 2 })));  // X red = right
+    scene.add(new THREE.Line(yAxisGeo, new THREE.LineBasicMaterial({ color: 0x22c55e, linewidth: 2 })));  // Y green = forward
+    scene.add(new THREE.Line(zAxisGeo, new THREE.LineBasicMaterial({ color: 0x3b82f6, linewidth: 2 })));  // Z blue = up
+
+    // Axis label spheres at tips
+    var tipGeo = new THREE.SphereGeometry(0.04, 8, 6);
+    var xTip = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+    xTip.position.set(axisLen, 0, 0);
+    var yTip = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+    yTip.position.set(0, axisLen, 0);
+    var zTip = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0x3b82f6 }));
+    zTip.position.set(0, 0, axisLen);
+    scene.add(xTip); scene.add(yTip); scene.add(zTip);
+
+    // ---- 3DGS splats (remapped to RFU) ----
+    var splatGroup = new THREE.Group();
+    var splatGeo = new THREE.SphereGeometry(1, 8, 6);
+    DATA.splats.forEach(function(s) {
+      var c = new THREE.Color(s[3], s[4], s[5]);
+      var mat = new THREE.MeshLambertMaterial({ color: c, transparent: true, opacity: 0.75 });
+      var mesh = new THREE.Mesh(splatGeo, mat);
+      var p = sim2rfu(s[0], s[1], s[2]);
+      mesh.position.set(p[0], p[1], p[2]);
+      mesh.scale.set(0.18, 0.18, 0.04);  // Flat ellipsoids
+      splatGroup.add(mesh);
+    });
+    scene.add(splatGroup);
+
+    // ---- Robot ----
+    var currentRobot = 'hexapod';
+    var robotGroup = new THREE.Group();
+    scene.add(robotGroup);
+    var trailLine = null;
+    var trailPoints = [];
+
+    function clearRobot() {
+      while (robotGroup.children.length > 0) {
+        var c = robotGroup.children[0];
+        robotGroup.remove(c);
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) c.material.dispose();
+      }
+      if (trailLine) {
+        scene.remove(trailLine);
+        trailLine.geometry.dispose();
+        trailLine.material.dispose();
+        trailLine = null;
+      }
+      trailPoints = [];
+    }
+
+    var bodyMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6, shininess: 60 });
+    var legMat = new THREE.LineBasicMaterial({ color: 0x60a5fa });
+    var footGeo = new THREE.SphereGeometry(0.035, 10, 8);
+    var hipGeo = new THREE.SphereGeometry(0.04, 8, 6);
+
+    function buildRobot(rtype) {
+      clearRobot();
+      var r = DATA.robots[rtype];
+      var legNames = Object.keys(r.h);
+
+      var bodySize = rtype === 'biped' ? 0.10 : rtype === 'quadruped' ? 0.08 : 0.07;
+      var bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(bodySize, 16, 12), bodyMat);
+      bodyMesh.name = 'body';
+      robotGroup.add(bodyMesh);
+
+      if (rtype === 'biped') {
+        var torsoMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.05, 0.08, 0.30, 10), bodyMat);
+        torsoMesh.name = 'torso';
+        robotGroup.add(torsoMesh);
+      }
+
+      legNames.forEach(function(name) {
+        var hip = new THREE.Mesh(hipGeo, new THREE.MeshPhongMaterial({ color: 0x475569 }));
+        hip.name = 'hip_' + name;
+        robotGroup.add(hip);
+
+        var lineGeo = new THREE.BufferGeometry();
+        lineGeo.setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
+        var line = new THREE.Line(lineGeo, legMat);
+        line.name = 'leg_' + name;
+        robotGroup.add(line);
+
+        var foot = new THREE.Mesh(footGeo, new THREE.MeshPhongMaterial({ color: 0x22c55e }));
+        foot.name = 'foot_' + name;
+        robotGroup.add(foot);
+      });
+    }
+
+    function updateRobot(rtype, frameIdx) {
+      var r = DATA.robots[rtype];
+      var frame = r.frames[frameIdx];
+      var base = sim2rfu(frame.b[0], frame.b[1], frame.b[2]);
+
+      var body = robotGroup.getObjectByName('body');
+      if (body) body.position.set(base[0], base[1], base[2]);
+
+      var torso = robotGroup.getObjectByName('torso');
+      if (torso) torso.position.set(base[0], base[1], base[2] + 0.18);
+
+      // Trail
+      trailPoints.push(new THREE.Vector3(base[0], base[1], base[2]));
+      if (trailPoints.length > 120) trailPoints.shift();
+      if (trailLine) {
+        scene.remove(trailLine);
+        trailLine.geometry.dispose();
+        trailLine.material.dispose();
+      }
+      if (trailPoints.length >= 2) {
+        var tg = new THREE.BufferGeometry().setFromPoints(trailPoints);
+        trailLine = new THREE.Line(tg, new THREE.LineBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.4 }));
+        scene.add(trailLine);
+      }
+
+      // Legs
+      var legNames = Object.keys(r.h);
+      legNames.forEach(function(name) {
+        var hipOff = sim2rfu(r.h[name][0], r.h[name][1], r.h[name][2]);
+        var hipPos = [base[0] + hipOff[0], base[1] + hipOff[1], base[2] + hipOff[2]];
+
+        var hip = robotGroup.getObjectByName('hip_' + name);
+        if (hip) hip.position.set(hipPos[0], hipPos[1], hipPos[2]);
+
+        var footData = frame.f[name];
+        var foot = robotGroup.getObjectByName('foot_' + name);
+        if (foot && footData) {
+          var fp = sim2rfu(footData[0], footData[1], footData[2]);
+          foot.position.set(fp[0], fp[1], fp[2]);
+          var isContact = frame.c[name];
+          foot.material.color.setHex(isContact ? 0x22c55e : 0xf59e0b);
+          foot.scale.setScalar(isContact ? 1.0 : 0.8);
+        }
+
+        var line = robotGroup.getObjectByName('leg_' + name);
+        if (line && footData) {
+          var fp2 = sim2rfu(footData[0], footData[1], footData[2]);
+          line.geometry.setFromPoints([
+            new THREE.Vector3(hipPos[0], hipPos[1], hipPos[2]),
+            new THREE.Vector3(fp2[0], fp2[1], fp2[2])
+          ]);
+        }
+      });
+
+      var contacts = legNames.filter(function(n) { return frame.c[n]; }).length;
+      var total = legNames.length;
+      var dist = Math.sqrt(base[0]*base[0] + base[1]*base[1]);
+      statsEl.innerHTML = '接触足: ' + contacts + '/' + total + '<br>位移: ' + dist.toFixed(2) + 'm<br>高度: ' + base[2].toFixed(2) + 'm';
+    }
+
+    // ---- Animation loop ----
+    var playing = true;
+    var currentFrame = 0;
+    var lastTime = performance.now();
+    var frameDuration = 1000 / DATA.fps;
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      if (playing) {
+        var elapsed = now - lastTime;
+        if (elapsed >= frameDuration) {
+          lastTime = now;
+          currentFrame = (currentFrame + 1) % DATA.nframes;
+          slider.value = currentFrame;
+          updateRobot(currentRobot, currentFrame);
+          timeEl.textContent = (currentFrame / DATA.fps).toFixed(1) + 's';
+        }
+      }
+
+      // Camera orbits in RFU (Z-up) space.
+      // Camera is above the ground plane (Z>0), looking down at the scene.
+      // Orbit radius in the XY (ground) plane, height in Z.
+      var t = now * 0.0001;
+      var radius = 5.0;
+      var camHeight = 3.5 + Math.sin(t * 0.5) * 0.5;
+      camera.position.set(
+        Math.cos(t) * radius,       // X: orbits left-right
+        Math.sin(t) * radius - 1,   // Y: orbits forward-back
+        camHeight                    // Z: height above ground
+      );
+      camera.lookAt(0, 0, 0.2);
+
+      renderer.render(scene, camera);
+    }
+
+    // ---- Controls ----
+    playBtn.addEventListener('click', function() {
+      playing = !playing;
+      playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+      if (playing) lastTime = performance.now();
+    });
+
+    resetBtn.addEventListener('click', function() {
+      currentFrame = 0;
+      slider.value = 0;
+      trailPoints = [];
+      updateRobot(currentRobot, 0);
+      timeEl.textContent = '0.0s';
+    });
+
+    slider.addEventListener('input', function() {
+      playing = false;
+      playBtn.textContent = '▶ 播放';
+      currentFrame = parseInt(slider.value);
+      updateRobot(currentRobot, currentFrame);
+      timeEl.textContent = (currentFrame / DATA.fps).toFixed(1) + 's';
+    });
+
+    tabBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        tabBtns.forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        currentRobot = btn.dataset.robot;
+        buildRobot(currentRobot);
+        trailPoints = [];
+        updateRobot(currentRobot, currentFrame);
+      });
+    });
+
+    // ---- Resize ----
+    var ro = new ResizeObserver(function() {
+      var w = wrap.clientWidth, h = wrap.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    });
+    ro.observe(wrap);
+
+    // ---- Init ----
+    buildRobot(currentRobot);
+    updateRobot(currentRobot, 0);
+    requestAnimationFrame(animate);
+  })();
+  </script>
+</div>
+
+</body>
+</html>
