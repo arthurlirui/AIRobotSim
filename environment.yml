@@ -1,0 +1,39 @@
+name: rtg132
+
+# AIRobotSim 实验平台统一 conda 环境。
+# 创建:  conda env create -f environment.yml
+# 更新:  conda env update -f environment.yml --prune
+# 激活:  conda activate rtg132
+#
+# 注意: 请勿在 base (Lucid Vision Labs, Python 3.7) 环境中直接安装依赖。
+# 所有开发与测试均在 rtg132 内进行。
+
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.12
+
+  # 科学计算核心
+  - numpy
+  - scipy
+  - matplotlib
+
+  # 测试
+  - pytest
+
+  # 机器人仿真 / 三维
+  - pip
+  - pip:
+      - mujoco
+      - mujoco-warp
+      - pytorch3d
+
+  # 深度学习 (CUDA 12.x)
+  - pytorch
+  - torchvision
+  - pytorch-cuda=12.*
+  - torchaudio

@@ -1,0 +1,3 @@
+[submodule "external/jumper"]
+	path = external/jumper
+	url = https://github.com/KingKongRobotics/jumper.git
