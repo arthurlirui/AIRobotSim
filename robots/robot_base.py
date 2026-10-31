@@ -319,7 +319,9 @@ class LeggedRobot(ABC):
             p2 = pts[(i + 1) % n]
             edge = p2 - p1
             to_com = com_xy - p1
-            if np.cross(edge, to_com) < 0:
+            # 2D scalar cross product (numpy 2.x np.cross requires 3D vectors)
+            cross_val = edge[0] * to_com[1] - edge[1] * to_com[0]
+            if cross_val < 0:
                 inside = False
                 break
         return inside

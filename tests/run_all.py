@@ -13,6 +13,9 @@ def main():
     from tests import test_math_utils, test_env, test_robots, test_gait, test_simulation
     from tests import test_terrain_urdf
     from tests import test_comm_channel, test_comm_network
+    from tests import test_comm_geometric
+    from tests import test_mobile_robots, test_sensors, test_rl
+    from tests import test_comm_sionna
 
     print("=" * 60)
     print("  AIRobotSim — 3D Gaussian Splatting Robot Simulation")
@@ -32,8 +35,13 @@ def main():
         ("Gait Planning", test_gait.run),
         ("Full Simulation", test_simulation.run),
         ("Terrain & URDF", test_terrain_urdf.run_all),
-        ("Comm Channel (Layer 0)", test_comm_channel.run),
+        ("Comm Channel (Layer 0+)", test_comm_channel.run),
         ("Comm Network Simulator", test_comm_network.run),
+        ("Comm Geometric LOS (Layer 1)", test_comm_geometric.run),
+        ("Mobile Robots (Wheeled + UAV)", test_mobile_robots.run),
+        ("Camera Optical Models", test_sensors.run),
+        ("RL / Imitation Learning", test_rl.run),
+        ("Comm Sionna RT (Layer 2)", test_comm_sionna.run),
     ]
     failed = []
     for label, fn in modules:

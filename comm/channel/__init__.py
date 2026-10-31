@@ -18,7 +18,17 @@ from comm.channel.statistical import (
     FreeSpaceChannel, LogDistanceChannel,
     CellularChannel, NRChannel, MmWaveChannel,
 )
+from comm.channel.geometric_los import GeometricLOSChannel
+from comm.channel.thz import THzChannel
+from comm.channel.fso import FSOChannel
 from comm.channel.fiber import FiberChannel
+
+# Layer 2 — Sionna RT ray tracing (optional heavy dependency)
+try:
+    from comm.channel.sionna_rt import SionnaRTChannel, SIONNA_AVAILABLE
+except ImportError:
+    SionnaRTChannel = None
+    SIONNA_AVAILABLE = False
 
 # Factory table — name -> class.  Used by ``create_channel``.
 _CHANNEL_REGISTRY = {
@@ -27,8 +37,13 @@ _CHANNEL_REGISTRY = {
     "cellular": CellularChannel,
     "nr": NRChannel,
     "mmwave": MmWaveChannel,
+    "thz": THzChannel,
+    "fso": FSOChannel,
+    "geometric_los": GeometricLOSChannel,
     "fiber": FiberChannel,
 }
+if SIONNA_AVAILABLE:
+    _CHANNEL_REGISTRY["sionna_rt"] = SionnaRTChannel
 
 # Friendly aliases mapping common technology names to the above.
 _ALIASES = {
@@ -39,8 +54,13 @@ _ALIASES = {
     "sub6": "nr",
     "mmwave": "mmwave",
     "mm_wave": "mmwave",
+    "terahertz": "thz",
     "optical_fiber": "fiber",
     "fibre": "fiber",
+    "los": "geometric_los",
+    "geometric": "geometric_los",
+    "ray_tracing": "sionna_rt",
+    "rt": "sionna_rt",
 }
 
 
@@ -72,6 +92,6 @@ __all__ = [
     "ChannelModel", "ChannelState", "Pose", "RadioParameters",
     "FreeSpaceChannel", "LogDistanceChannel",
     "CellularChannel", "NRChannel", "MmWaveChannel",
-    "FiberChannel",
+    "FiberChannel", "SIONNA_AVAILABLE",
     "create_channel", "list_channels",
 ]

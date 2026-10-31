@@ -29,6 +29,9 @@ from comm.channel.statistical import (
     FreeSpaceChannel, LogDistanceChannel,
     CellularChannel, NRChannel, MmWaveChannel,
 )
+from comm.channel.geometric_los import GeometricLOSChannel
+from comm.channel.thz import THzChannel
+from comm.channel.fso import FSOChannel
 from comm.channel.fiber import FiberChannel
 from comm.channel import create_channel, list_channels
 from comm.network import (
@@ -46,7 +49,8 @@ __all__ = [
     "ChannelModel", "ChannelState", "Pose", "RadioParameters",
     # channels
     "FreeSpaceChannel", "LogDistanceChannel",
-    "CellularChannel", "NRChannel", "MmWaveChannel", "FiberChannel",
+    "CellularChannel", "NRChannel", "MmWaveChannel",
+    "GeometricLOSChannel", "THzChannel", "FSOChannel", "FiberChannel",
     "create_channel", "list_channels",
     # network
     "CommNode", "Topology", "LinkEntry",

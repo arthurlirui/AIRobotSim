@@ -72,6 +72,7 @@ def _register(spec: ModulationSpec) -> ModulationSpec:
 
 
 BPSK = _register(ModulationSpec("BPSK", 1, _bpsk_ber))
+OOK = _register(ModulationSpec("OOK", 1, _bpsk_ber))  # OOK ≈ BPSK per-bit BER
 QPSK = _register(ModulationSpec("QPSK", 2, _qpsk_ber))
 QAM16 = _register(ModulationSpec(
     "16QAM", 4, lambda s: _mqam_ber(s, 16)))

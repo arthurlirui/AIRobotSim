@@ -1,3 +1,6 @@
 [submodule "external/jumper"]
 	path = external/jumper
 	url = https://github.com/KingKongRobotics/jumper.git
+[submodule "external/splatshop"]
+	path = external/splatshop
+	url = https://github.com/m-schuetz/Splatshop.git

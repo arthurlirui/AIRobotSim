@@ -31,6 +31,8 @@ dependencies:
       - mujoco
       - mujoco-warp
       - pytorch3d
+      # 无线射线追踪信道仿真（可选：Layer-2 信道，未安装时自动降级）
+      - sionna
 
   # 深度学习 (CUDA 12.x)
   - pytorch

@@ -3,6 +3,7 @@ from .robot_base import LeggedRobot, Leg, Joint, RobotState
 from .biped import Biped
 from .quadruped import Quadruped
 from .hexapod import Hexapod
+from .mobile_base import MobileRobot, WheeledRobot, UAV
 
 # URDF-based robot factory (optional — requires downloaded URDFs)
 try:
@@ -18,4 +19,5 @@ except ImportError:
 __all__ = [
     "LeggedRobot", "Leg", "Joint", "RobotState",
     "Biped", "Quadruped", "Hexapod",
+    "MobileRobot", "WheeledRobot", "UAV",
 ]

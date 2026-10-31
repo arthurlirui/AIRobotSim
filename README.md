@@ -66,6 +66,29 @@ control/            步态规划 · 运动控制
   motion_controller.py      整体运动控制
 interaction/        机器人-环境交互
   env_interaction.py        地形适应 · 碰撞响应 · 射线"激光雷达"感知 · 交互事件
+comm/               通信模拟模块（多制式信道 · 几何遮挡 · 射线追踪 · 集群网络仿真）
+  channel/                  信道模型（适配器模式，统一接口）
+    base.py                 ChannelState · ChannelModel 基类 · Pose · RadioParameters
+    statistical.py          Layer 0：自由空间 / 对数距离 / 3G·4G / 5G NR / mmWave
+    geometric_los.py        Layer 1：复用 GaussianSplatEnv.ray_cast 的几何遮挡
+    sionna_rt.py            Layer 2：Sionna RT 射线追踪（可选依赖，反射/绕射/CIR）
+    thz.py                  THz 分子吸收信道（100 GHz – 1 THz）
+    fso.py                  FSO 自由空间光通信（Gamma-Gamma 湍流 + 指向误差）
+    fiber.py                光纤近似无损管道
+  phy/                      调制库 + 链路预算（SNR / Shannon 容量 / BER）
+  network/                  集群网络仿真（节点 · 动态拓扑 · Dijkstra 中继路由 · 事件）
+  scenarios/                预置实验场景（集群中继 · mmWave 遮挡 · THz 短距 · FSO 指向）
+sensors/            相机光学模型（共用针孔几何，按类型差异化的测量与噪声模型）
+  base.py                   CameraIntrinsics · CameraExtrinsics · CameraModel 基类
+  monocular.py              可见光 RGB（shot + read 噪声）
+  stereo.py                 双目深度（视差 → 深度，σ ∝ Z²，最远测距限制）
+  itof.py                   iToF 深度（相位卷绕 · 多径 · confidence）
+  thermal.py                长波红外热成像（NETD + 固定模式噪声）
+  nir.py                    近红外主动照明（1/Z² 光强衰减 + 红边增强）
+rl/                 强化学习 / 模仿学习
+  envs.py                   Gym 风格导航环境（可选通信耦合奖励）
+  policy.py                 高斯 MLP 策略（numpy 实现，含反传）
+  algo.py                   REINFORCE（带基线）+ DAgger 风格模仿学习
 tests/              单元测试与仿真场景
 assets/             3DGS 样例数据 · 配置 · Three.js 前端
   preview.html              Three.js 渲染与交互前端
@@ -74,6 +97,7 @@ assets/             3DGS 样例数据 · 配置 · Three.js 前端
     unitree_ros/            Unitree URDF（Go2 / Go1 / A1 / B1 / H1 / Laikago）
     legged_gym/             Legged Gym 地形生成参考（ETH Zurich）
 external/jumper/    22-DoF crab 机器人 AI 工具链（git submodule）
+external/splatshop/ 3DGS 场景编辑器（git submodule，m-schuetz/Splatshop）
 ```
 
 ---
@@ -186,6 +210,162 @@ git submodule update --init --recursive
 
 ---
 
+## 通信模拟模块（`comm/`）
+
+通信模块是平台研究"通信约束"的核心基础设施。它通过**适配器模式**将传统 3G/4G/5G 与先进 mmWave/THz/FSO/光纤统一到同一套 `ChannelModel.generate(tx_pose, rx_pose, t) → ChannelState` 接口下，仿真内核只面对统一接口，底层物理模型差异由各制式适配器吸收。
+
+### 分层架构
+
+| 层 | 类 | 依赖 | 能力 |
+|---|---|---|---|
+| Layer 0 统计基线 | `FreeSpaceChannel` `LogDistanceChannel` `CellularChannel` `NRChannel` `MmWaveChannel` | numpy | 距离驱动路径损耗 + 衰落，覆盖 80% 集群实验 |
+| Layer 1 几何遮挡 | `GeometricLOSChannel` | `GaussianSplatEnv.ray_cast` | 复用 3DGS 场景几何判定 LOS/NLOS，遮挡即降级或断链 |
+| Layer 0+ THz | `THzChannel` | numpy | 分子吸收 (Beer-Lambert) + FSPL，100 GHz – 1 THz |
+| Layer 0+ FSO | `FSOChannel` | numpy | Gamma-Gamma 湍流 (Rytov) + Farid-Uysal 指向误差 |
+| 光纤 | `FiberChannel` | numpy | 近似无损固定容量管道 |
+
+### 支持的通信制式
+
+| 制式 | 类 | 关键参数 | 底层模型 |
+|---|---|---|---|
+| 3G/4G | `CellularChannel` | 900/1900/700/1800/2600 MHz | 对数距离 + 阴影衰落 |
+| 5G NR | `NRChannel` | sub-6 GHz | 3GPP TR 38.901 CI 模型 |
+| mmWave | `MmWaveChannel` | 28/60/73 GHz | CI 模型 + 氧气吸收 |
+| THz | `THzChannel` | 100 GHz – 1 THz | 分子吸收 (ITU-R P.676) + FSPL |
+| FSO | `FSOChannel` | 850/1550 nm | Rytov 湍流 + 指向误差 |
+| 光纤 | `FiberChannel` | 任意容量 | 0.2 dB/km 近似无损 |
+
+### 快速使用
+
+```python
+from comm import (
+    create_channel, CommNetworkSimulator, Pose, RadioParameters,
+    GeometricLOSChannel, MmWaveChannel, NRChannel,
+)
+
+# 1. 创建信道模型（工厂或直接构造）
+ch = create_channel("mmwave", carrier_hz=28e9)
+
+# 2. 创建集群网络仿真器
+sim = CommNetworkSimulator(ch)
+sim.add_node("r0", Pose(position=np.array([0, 0, 0.5])))
+sim.add_node("r1", Pose(position=np.array([10, 0, 0.5])))
+sim.add_node("r2", Pose(position=np.array([20, 0, 0.5])))
+
+# 3. 每步更新位姿 → 重算所有链路 → 更新拓扑
+snap = sim.step(t=0.0)
+print(f"links up: {sum(1 for l in snap.links if l.up)}")
+
+# 4. 多跳投递
+result = sim.send("r0", "r2")
+print(f"delivered={result.delivered}, path={result.path}, hops={len(result.path)-1}")
+```
+
+### 几何遮挡（Layer 1）
+
+平台的差异化能力在于：链路质量由 3DGS 重建场景的**实际几何**驱动，而非纯统计模型。`GeometricLOSChannel` 包装任意 Layer-0 信道模型，对每对收发节点发射射线调用 `GaussianSplatEnv.ray_cast` 判定 LOS/NLOS：
+
+```python
+from core.gaussian_splat_env import GaussianSplatEnv
+
+env = GaussianSplatEnv.create_flat_ground(size=8.0, resolution=4)
+# ... 向 env 添加障碍物 splats ...
+
+# mmWave 对遮挡极敏感 → hard_block=True 直接断链
+mmwave = GeometricLOSChannel(
+    MmWaveChannel(carrier_hz=28e9), hard_block=True)
+# 5G NR 穿透性更好 → 软惩罚 15 dB
+nr = GeometricLOSChannel(
+    NRChannel(carrier_hz=3.5e9), nlos_penalty_db=15.0)
+
+sim = CommNetworkSimulator(mmwave, env=env)  # env 传递给几何遮挡判定
+```
+
+### 预置实验场景
+
+`comm/scenarios/` 提供四个开箱即用的实验，同时作为集成测试与使用示例：
+
+| 场景 | 函数 | 研究问题 |
+|---|---|---|
+| 集群中继 | `swarm_relay()` | N 机器人线形排列，端到端投递需多跳中继 |
+| mmWave 遮挡 | `mmwave_occlusion(env)` | mmWave vs 5G NR 对遮挡的敏感性对比 |
+| THz 短距 | `thz_short_range()` | THz 容量随间距衰减，确定可用距离窗口 |
+| FSO 指向 | `fso_pointing()` | 步态抖动幅度 vs FSO 指向损耗与 BER |
+
+---
+
+## 传感器光学模型（`sensors/`）
+
+感知研究的基础设施：五类相机共用同一套针孔几何（`CameraIntrinsics` / `CameraExtrinsics`），但各自实现**差异化测量物理**——对同一 3DGS 场景、同一位姿渲染时，各传感器的输出必须可区分：
+
+| 相机 | 输出 | 关键物理 |
+|---|---|---|
+| `MonocularCamera` | RGB + 深度 | 散粒噪声 + 读出噪声，颜色随距离衰减 |
+| `StereoCamera` | RGB + 深度 | 视差模型 σ_Z ∝ Z²/(f·B)，超出测距上限返回无效 |
+| `ITofCamera` | 深度 + confidence | 相位卷绕（Z mod c/2f_mod）、多径偏差、回波强度置信度 |
+| `ThermalCamera` | 表观温度 | NETD 时域噪声 + 逐像素固定模式噪声 |
+| `NearInfraredCamera` | NIR 强度 | 主动照明 1/Z² 衰减，植被红边反射增强 |
+
+所有模型基于 `GaussianSplatEnv.ray_cast` 逐像素投射，渲染用 `stride` 参数子采样以控制开销；`seed()` 保证实验可复现。
+
+```python
+from sensors import StereoCamera, ITofCamera
+from sensors.base import CameraExtrinsics
+import numpy as np
+
+# 相机朝 +X 安装（光轴 +Z → 世界 +X）
+ext = CameraExtrinsics(translation=np.array([0.1, 0, 0.1]),
+                       euler=np.array([0, np.pi/2, 0]))
+cam = StereoCamera(extrinsics=ext); cam.seed(0)
+frame = cam.render(env, robot.position, robot.state.base_orientation, stride=4)
+```
+
+---
+
+## 强化学习 / 模仿学习（`rl/`）
+
+`NavigationEnv` 提供 Gym 风格接口（`reset / step → (obs, reward, terminated, truncated, info)`），观测为机体坐标系目标向量 + 速度 + 前向射线扫描；奖励 = 前进进度 + 到达奖励 − 时间/碰撞惩罚。可选**通信耦合奖励**：每步通过任意 `ChannelModel`（Layer 0/1/2 均可）计算与基站的链路质量并注入奖励，用于研究通信约束下的导航策略。
+
+内置训练算法均为 numpy 实现、零额外依赖：`ReinforceTrainer`（带滑动基线 + 批内优势归一化）与 `ImitationTrainer`（DAgger 风格，`ScriptedNavExpert` 提供专家标签）。环境接口与 Gymnasium 兼容，可直接替换为 Stable-Baselines3 等框架训练。
+
+```python
+from rl import NavigationEnv, ReinforceTrainer
+
+nav = NavigationEnv(wheeled_robot, env, goal=np.array([8., 0., 0.]),
+                    channel=create_channel("mmwave"),      # 可选：通信耦合
+                    channel_reward_weight=0.3)
+trainer = ReinforceTrainer(nav, batch_size=16)
+returns = trainer.train(iterations=50)                       # 回收曲线
+```
+
+---
+
+## Sionna RT 射线追踪（Layer 2）
+
+安装 sionna（`pip install sionna`，需要 Python ≥ 3.10）后，`SionnaRTChannel` 将 3DGS 场景中的 splat 转换为 Mitsuba 网格场景，用 Sionna RT 计算精确的多径信道（镜面反射、漫散射、边缘绕射、完整 CIR）：
+
+```python
+from comm import create_channel
+
+ch = create_channel("sionna_rt", env=env, carrier_hz=28e9, max_depth=3)
+state = ch.generate(tx_pose, rx_pose)
+print(state.path_gain_db, state.los, state.cir)   # 含功率时延谱
+```
+
+与 Layer 0/1 同一接口，可直接插入 `CommNetworkSimulator` 做多机器人射线追踪级网络仿真。未安装 sionna 时工厂自动隐藏该制式，其余层级不受影响。
+
+### Splatshop 子模块
+
+`external/splatshop`（[m-schuetz/Splatshop](https://github.com/m-schuetz/Splatshop)）是基于 Web 的 3DGS 场景编辑器，用于查看、裁剪和编辑 `.ply` 高斯泼溅重建结果——平台用它准备投喂给 `GaussianSplatEnv` 的场景资产。
+
+```bash
+git submodule update --init --recursive
+# 本地起一个静态服务器打开编辑器
+python -m http.server -d external/splatshop 8000
+```
+
+---
+
 ## 模块一览
 
 | 模块 | 说明 |
@@ -200,9 +380,32 @@ git submodule update --init --recursive
 | `robots.quadruped` | 四足机器人 |
 | `robots.hexapod` | 六足机器人 |
 | `robots.urdf_robot` | 从真实 URDF 构建机器人的工厂 |
+| `robots.mobile_base` | 轮式（差速驱动）与无人机（四旋翼）移动平台 |
 | `control.gait_planner` | 步态模式生成（walk / trot / wave / tripod …） |
 | `control.motion_controller` | 整体运动控制 |
 | `interaction.env_interaction` | 地形适应、碰撞响应、射线感知、交互事件 |
+| `comm.channel.base` | 信道模型基类、ChannelState、Pose、RadioParameters |
+| `comm.channel.statistical` | Layer 0 统计信道：自由空间 / 对数距离 / 3G·4G / 5G NR / mmWave |
+| `comm.channel.geometric_los` | Layer 1 几何遮挡，复用 GaussianSplatEnv.ray_cast |
+| `comm.channel.sionna_rt` | Layer 2 Sionna RT 射线追踪（反射/绕射/信道冲激响应，可选依赖） |
+| `comm.channel.thz` | THz 分子吸收信道（100 GHz – 1 THz） |
+| `comm.channel.fso` | FSO 自由空间光通信（湍流 + 指向误差） |
+| `comm.channel.fiber` | 光纤近似无损管道 |
+| `comm.phy.modulations` | 调制库（BPSK / QPSK / M-QAM / OOK）→ BER |
+| `comm.phy.link_budget` | 链路预算：SNR / Shannon 容量 / BER |
+| `comm.network.node` | 通信节点（绑定机器人位姿与信道模型） |
+| `comm.network.topology` | 动态拓扑：邻接矩阵 · 连通分量 · Dijkstra 中继路由 |
+| `comm.network.network_simulator` | 集群级仿真：step / send / 事件 / 快照 |
+| `comm.scenarios` | 预置实验场景（中继 · 遮挡 · THz · FSO） |
+| `sensors.base` | 相机基类：针孔内参 / 外参 / 统一渲染接口 |
+| `sensors.monocular` | 可见光单目相机（shot + read 噪声） |
+| `sensors.stereo` | 双目深度相机（视差模型，σ∝Z²，测距上限） |
+| `sensors.itof` | iToF 深度相机（相位卷绕 + 多径 + confidence） |
+| `sensors.thermal` | 长波红外热像仪（NETD + 固定模式噪声） |
+| `sensors.nir` | 近红外主动照明相机（1/Z² 衰减 + 红边增强） |
+| `rl.envs` | Gym 风格导航环境（支持通信耦合奖励） |
+| `rl.policy` | 高斯 MLP 策略（numpy 实现） |
+| `rl.algo` | REINFORCE（带基线）与 DAgger 风格模仿学习 |
 
 ---
 
@@ -216,6 +419,13 @@ git submodule update --init --recursive
 - `test_gait` — 步态规划
 - `test_simulation` — 3DGS 场景下的整机仿真集成
 - `test_terrain_urdf` — 地形生成器与 URDF 工厂
+- `test_comm_channel` — 通信信道模型（Layer 0+：3G/4G/5G/mmWave/THz/FSO/光纤）
+- `test_comm_network` — 集群网络仿真器（拓扑 / 中继 / 移动性）
+- `test_comm_geometric` — 几何遮挡（Layer 1，含对照组回归断言）
+- `test_mobile_robots` — 轮式 / 无人机运动模型与环境交互
+- `test_sensors` — 相机光学模型（含 iToF 相位卷绕 vs 单目真值的对照组）
+- `test_rl` — 强化学习 / 模仿学习（含"训练必须改进"的对照组断言）
+- `test_comm_sionna` — Sionna RT 射线追踪适配器（未安装 sionna 时自动跳过；含 FSPL 对照）
 
 ---
 
@@ -226,6 +436,8 @@ git submodule update --init --recursive
 - [unitree_ros](https://github.com/unitreerobotics/unitree_ros) — Unitree 机器人 URDF
 - [Three.js](https://threejs.org/) — 浏览器端三维渲染
 - [Jumper](https://github.com/KingKongRobotics/jumper-design) — 22-DoF crab 机器人 AI 工具链
+- [Splatshop](https://github.com/m-schuetz/Splatshop) — 3DGS 场景编辑器
+- [Sionna](https://nvlabs.github.io/sionna/) — NVIDIA 可微分射线追踪无线仿真
 
 ---
 

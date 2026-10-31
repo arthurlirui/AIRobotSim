@@ -1,6 +1,6 @@
 # AIRobotSim 通信模拟模块设计方案
 
-> 状态：设计草案（2026-10-21）
+> 状态：P0–P2 已实现（2026-10-22）；P3–P4 规划中
 > 范围：在 AIRobotSim 实验平台中新增 `comm/` 模块，支持传统 3G/4G/5G 与先进 mmWave/THz/FSO/光纤制式，在高保真三维重建场景中模拟无线电波传播与移动机器人集群通信。
 
 ---
@@ -330,17 +330,47 @@ Layer 0 + Layer 1 只用 numpy + 现有 `GaussianSplatEnv`，在 `rtg132` 环境
 
 ---
 
-## 12. 落地路线
+## 12. 落地路线与实现状态
 
-| 阶段 | 内容 | 依赖 |
+| 阶段 | 内容 | 依赖 | 状态 |
+|---|---|---|---|
+| **P0** | `comm/channel/base.py` 接口 + `statistical.py` (Layer 0) + `fiber.py` + `network_simulator.py` 基础拓扑 | 无新依赖 | ✅ 已完成 (2026-10-22) |
+| **P1** | `geometric_los.py` (Layer 1，复用 `ray_cast`) + `network_simulator` 遮挡感知 | 无新依赖 | ✅ 已完成 (2026-10-22) |
+| **P2** | `thz.py` + `fso.py` + 预置场景 1-4 | hapi 可选 | ✅ 已完成 (2026-10-22) |
+| **P3** | `sionna_rt.py` (Layer 2) + 3DGS→Sionna 场景转换器 + 差分更新 | sionna, mitsuba3 | ⬜ 规划中 |
+| **P4** | `protocol_bridge.py` (Layer 3, ns-3/CORE ZMQ) + 预置场景 5 | ns-3 或 coreemu | ⬜ 规划中 |
+
+### P0–P2 实现清单
+
+**已交付的源文件**：
+
+| 文件 | 内容 | 行数 |
 |---|---|---|
-| **P0** | `comm/channel/base.py` 接口 + `statistical.py` (Layer 0) + `fiber.py` + `network_simulator.py` 基础拓扑 | 无新依赖 |
-| **P1** | `geometric_los.py` (Layer 1，复用 `ray_cast`) + `network_simulator` 遮挡感知 + 前端链路可视化 | 无新依赖 |
-| **P2** | `NRChannel` / `MmWaveChannel` (38.901 统计) + `thz.py` + `fso.py` + 预置场景 1-4 | hapi 可选 |
-| **P3** | `sionna_rt.py` (Layer 2) + 3DGS→Sionna 场景转换器 + 差分更新 | sionna, mitsuba3 |
-| **P4** | `protocol_bridge.py` (Layer 3, ns-3/CORE ZMQ) + 预置场景 5 | ns-3 或 coreemu |
+| `comm/channel/base.py` | `ChannelState` · `ChannelModel` 基类 · `Pose` · `RadioParameters` | ~150 |
+| `comm/channel/statistical.py` | `FreeSpaceChannel` · `LogDistanceChannel` · `CellularChannel` · `NRChannel` · `MmWaveChannel` | ~200 |
+| `comm/channel/geometric_los.py` | `GeometricLOSChannel`（Layer 1 几何遮挡，复用 `ray_cast`） | ~110 |
+| `comm/channel/thz.py` | `THzChannel`（分子吸收，100 GHz – 1 THz） | ~135 |
+| `comm/channel/fso.py` | `FSOChannel`（Rytov 湍流 + Farid-Uysal 指向误差） | ~180 |
+| `comm/channel/fiber.py` | `FiberChannel`（近似无损管道） | ~80 |
+| `comm/channel/__init__.py` | 工厂 `create_channel()` + 别名注册 | ~70 |
+| `comm/phy/modulations.py` | BPSK/QPSK/M-QAM/OOK BER-SNR 曲线 | ~100 |
+| `comm/phy/link_budget.py` | 热噪声 · SNR · Shannon 容量 · BER 填充 | ~70 |
+| `comm/network/node.py` | `CommNode` | ~40 |
+| `comm/network/topology.py` | 邻接矩阵 · 连通分量 · Dijkstra 路由 · 路径质量 | ~160 |
+| `comm/network/network_simulator.py` | `CommNetworkSimulator` · `step()` · `send()` · 事件 · 快照 | ~230 |
+| `comm/scenarios/__init__.py` | 4 个预置实验场景 | ~180 |
 
-P0-P1 是核心，零额外依赖，直接在 `rtg132` 内可开发测试，建议作为首个 PR 的范围。P2 扩展制式覆盖。P3-P4 是高保真/协议级增强，按研究需求推进。
+**已交付的测试**（43 个用例，全部通过）：
+
+| 测试文件 | 用例数 | 覆盖 |
+|---|---|---|
+| `tests/test_comm_channel.py` | 24 | FSPL/频率缩放/多普勒/max_range/对数距离/3G·4G 频段/NR CI/mmWave 氧气吸收/光纤/THz 吸收线性性/THz 水线/FSO 指向/FSO 湍流/工厂/调制/BER 单调性/热噪声/Shannon |
+| `tests/test_comm_network.py` | 12 | 邻接/连通分量/Dijkstra 多跳/不可达/step/link_down 事件/link_up 事件/多跳投递/无路由/混合制式/快照/移动性驱动拓扑 |
+| `tests/test_comm_geometric.py` | 7 | LOS 清晰/NLOS 惩罚/hard_block/mmWave vs NR 敏感性/无 env 回退/**对照组回归断言**/网络 env 集成 |
+
+**关键回归断言**：`test_control_group_regression` 验证几何遮挡层的断链数严格大于纯统计层（stat_down=0, geo_down=4），确保 3D 场景几何耦合生效。
+
+**附带的 Bug 修复**：`robot_base.py:322` 的 `np.cross` 在 numpy 2.x 下对 2D 向量报错，已改为标量叉积，修复了 3 个预先阻塞的测试模块。
 
 ---
 

@@ -22,6 +22,7 @@ from comm import (
     Pose, RadioParameters,
     FreeSpaceChannel, LogDistanceChannel,
     CellularChannel, NRChannel, MmWaveChannel, FiberChannel,
+    THzChannel, FSOChannel,
     create_channel, list_channels,
     ber_for, get_modulation, list_modulations,
     thermal_noise_dbm, snr_db, shannon_capacity_bps,
@@ -277,11 +278,95 @@ def test_shannon_capacity():
 
 
 # ---------------------------------------------------------------------------
+# THz
+# ---------------------------------------------------------------------------
+
+def test_thz_basic():
+    """THz channel produces well-formed state with absorption metadata."""
+    radio = RadioParameters(bandwidth_hz=10e9, max_range_m=100.0,
+                            modulation="16QAM")
+    ch = THzChannel(carrier_hz=300e9, radio=radio)
+    tx, rx = _pose_at(0), _pose_at(5.0)
+    st = ch.generate(tx, rx, tx_id="a", rx_id="b")
+    _assert_state_well_formed(st)
+    assert st.metadata["model"] == "thz"
+    assert st.metadata["absorption_db_per_m"] > 0
+    assert st.metadata["absorption_loss_db"] > 0
+    print(f"  [PASS] THz @300GHz 5m: pg={st.path_gain_db:.1f} dB, "
+          f"abs_loss={st.metadata['absorption_loss_db']:.2f} dB")
+
+
+def test_thz_absorption_grows_with_distance():
+    """Molecular absorption loss must increase with distance."""
+    radio = RadioParameters(bandwidth_hz=10e9, max_range_m=100.0,
+                            modulation="16QAM")
+    ch = THzChannel(carrier_hz=300e9, radio=radio, shadowing_std=0.0)
+    tx = _pose_at(0)
+    g5 = ch.generate(tx, _pose_at(5.0)).path_gain_db
+    g20 = ch.generate(tx, _pose_at(20.0)).path_gain_db
+    # Both FSPL and absorption grow, so g20 must be much worse.
+    assert g20 < g5
+    # Absorption at 20m should be 4x absorption at 5m
+    abs5 = ch.generate(tx, _pose_at(5.0)).metadata["absorption_loss_db"]
+    abs20 = ch.generate(tx, _pose_at(20.0)).metadata["absorption_loss_db"]
+    assert abs(abs20 / abs5 - 4.0) < 0.1, (
+        f"Absorption should scale linearly: {abs5:.2f} vs {abs20:.2f}")
+    print(f"  [PASS] THz absorption: 5m={abs5:.2f} dB, 20m={abs20:.2f} dB (4x)")
+
+
+def test_thz_high_freq_more_absorption():
+    """350 GHz (water line) should have more absorption than 200 GHz."""
+    ch_low = THzChannel(carrier_hz=200e9)
+    ch_high = THzChannel(carrier_hz=350e9)
+    assert ch_high.absorption_db_per_m > ch_low.absorption_db_per_m
+    print(f"  [PASS] THz absorption: 200GHz={ch_low.absorption_db_per_m:.2f} dB/m, "
+          f"350GHz={ch_high.absorption_db_per_m:.2f} dB/m")
+
+
+# ---------------------------------------------------------------------------
+# FSO
+# ---------------------------------------------------------------------------
+
+def test_fso_basic():
+    """FSO channel produces well-formed state with turbulence metadata."""
+    ch = FSOChannel()
+    tx, rx = _pose_at(0), _pose_at(20.0)
+    st = ch.generate(tx, rx, tx_id="a", rx_id="b")
+    _assert_state_well_formed(st)
+    assert st.metadata["model"] == "fso"
+    assert st.metadata["rytov_variance"] >= 0
+    assert 0 < st.metadata["pointing_collection"] <= 1
+    print(f"  [PASS] FSO @20m 1550nm: pg={st.path_gain_db:.1f} dB, "
+          f"rytov={st.metadata['rytov_variance']:.4f}, "
+          f"collected={st.metadata['pointing_collection']:.3f}")
+
+
+def test_fso_pointing_degrades_with_jitter():
+    """Increasing jitter must decrease the collection fraction (more loss)."""
+    tx, rx = _pose_at(0), _pose_at(20.0)
+    pg_low = FSOChannel(pointing_jitter_m=0.001).generate(tx, rx).path_gain_db
+    pg_high = FSOChannel(pointing_jitter_m=0.05).generate(tx, rx).path_gain_db
+    assert pg_high < pg_low, (
+        f"More jitter should mean more loss: low={pg_low}, high={pg_high}")
+    print(f"  [PASS] FSO pointing: 1mm={pg_low:.1f} dB, 50mm={pg_high:.1f} dB")
+
+
+def test_fso_turbulence_grows_with_distance():
+    """Rytov variance must increase with distance."""
+    ch = FSOChannel(cn2=1e-13)  # strong turbulence for visible effect
+    tx = _pose_at(0)
+    r5 = ch.generate(tx, _pose_at(5.0)).metadata["rytov_variance"]
+    r50 = ch.generate(tx, _pose_at(50.0)).metadata["rytov_variance"]
+    assert r50 > r5
+    print(f"  [PASS] FSO turbulence: 5m σ_R²={r5:.4f}, 50m σ_R²={r50:.4f}")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
 def run():
-    print("Test: Communication Channel Models (Layer 0)")
+    print("Test: Communication Channel Models (Layer 0+)")
     test_free_space_basic()
     test_free_space_frequency_scaling()
     test_free_space_doppler()
@@ -299,6 +384,12 @@ def run():
     test_ber_monotonic()
     test_thermal_noise()
     test_shannon_capacity()
+    test_thz_basic()
+    test_thz_absorption_grows_with_distance()
+    test_thz_high_freq_more_absorption()
+    test_fso_basic()
+    test_fso_pointing_degrades_with_jitter()
+    test_fso_turbulence_grows_with_distance()
     print()
 
 
