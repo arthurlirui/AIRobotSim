@@ -110,6 +110,17 @@ assets/             3DGS 样例数据 · 配置 · Three.js 前端
 external/jumper/    22-DoF crab 机器人 AI 工具链（git submodule）
 external/splatshop/ 3DGS 场景编辑器（git submodule，m-schuetz/Splatshop）
 
+# —— 统一仿真控制台（前后端 Web 应用）——
+server/             仿真控制台后端（FastAPI：REST + WebSocket）
+  app.py                    /api/catalog · /api/scenarios/run · /api/comm/* · /api/design/* · /ws/sim
+  sim_session.py            WebSocket 会话：场景配置 → 可逐步步进的 World
+  payloads.py               仿真对象 → JSON 帧负载（机器人位姿 / 激光雷达 / 通信链路 / 指标）
+app/                仿真控制台前端（Vue 3 + Pinia + Three.js + Vite）
+  src/views/                实时仿真（WebSocket 实时流 + 3D 视口）· 通信实验 · 构型设计
+  src/components/           SimViewport：Three.js 场景渲染（地形 / 机器人 / 激光 / 通信链路）
+  src/stores/sim.js         WebSocket 连接与实时状态管理
+  src/api/                  REST 客户端
+
 # —— 浏览器端交互式虚拟实验室（前端子项目，独立工程化）——
 chemlab/            3D 虚拟化学实验室（Three.js + Vite Web 应用，开发中）
   package.json             子项目依赖与脚本（vite dev / build / preview）
@@ -143,6 +154,36 @@ python -m tests.run_all
 > 平台依赖的 base conda 是 Lucid Vision Labs 自带环境（Python 3.7），**不要**在其上直接安装；请始终使用 `rtg132`。仓库根目录的 `environment.yml` 记录了 `rtg132` 的完整依赖规格。
 
 要在浏览器中查看三维场景与机器人回放，直接打开 `assets/preview.html`，或用 `tests/generate_animation_data.py` 重新生成动画数据。
+
+### 启动统一仿真控制台（前后端）
+
+一条命令即可启动带 Web 前端的仿真控制台（后端自动托管 `app/dist` 构建产物）：
+
+```bash
+# 1. 构建前端（仅需一次，或前端改动后重新构建）
+cd app && npm install && npm run build && cd ..
+
+# 2. 启动后端（rtg132 环境）
+python -m uvicorn server.app:app --port 8000
+
+# 3. 打开 http://127.0.0.1:8000
+```
+
+前端开发模式（热更新，API/WS 自动代理到后端）：
+
+```bash
+cd app && npm run dev        # http://localhost:5173
+```
+
+控制台包含三个标签页：
+
+| 标签页 | 通道 | 能力 |
+|---|---|---|
+| 实时仿真 | WebSocket `/ws/sim` | 场景配置（地形/障碍/算法/通信）→ Three.js 实时渲染机器人、激光雷达扫描、通信链路；播放/暂停/单步/重置/倍速；算法指标实时曲线 |
+| 通信实验 | REST `/api/comm/*` | 运行 `comm/scenarios` 预置实验（集群中继 / mmWave 遮挡 / THz 短距 / FSO 指向），查看投递路径与时延 |
+| 构型设计 | REST `/api/design/*` | 运行 `design/` 预设构型的步态 FK 预览，逐帧回放连杆运动 |
+
+后端 API 自测：`python -m tests.test_server_api`（REST 端点 + WebSocket 帧流冒烟测试）。
 
 ---
 

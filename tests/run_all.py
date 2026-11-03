@@ -18,6 +18,7 @@ def main():
     from tests import test_comm_sionna
     from tests import test_design
     from tests import test_algorithm_platform
+    from tests import test_server_api
 
     print("=" * 60)
     print("  AIRobotSim — 3D Gaussian Splatting Robot Simulation")
@@ -46,6 +47,7 @@ def main():
         ("Comm Sionna RT (Layer 2)", test_comm_sionna.run),
         ("Morphology Design Module", test_design.run),
         ("Algorithm Platform (SLAM/Nav/Swarm/Det)", test_algorithm_platform.run),
+        ("Server API (REST + WebSocket)", test_server_api.run),
     ]
     failed = []
     for label, fn in modules:

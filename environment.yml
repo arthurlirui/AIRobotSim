@@ -25,6 +25,11 @@ dependencies:
   # 测试
   - pytest
 
+  # 仿真控制台后端（server/，FastAPI REST + WebSocket）
+  - fastapi
+  - uvicorn
+  - websockets
+
   # 机器人仿真 / 三维
   - pip
   - pip:
