@@ -40,6 +40,12 @@ AIRobotSim 不是一个通用物理引擎，而是一个**面向研究的实验�
 │                                                                   │
 │  external/jumper/  22-DoF crab 机器人 AI 工具链（git submodule）   │
 └───────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│              浏览器端交互式虚拟实验室（前端子项目）                │
+│  chemlab/       3D 虚拟化学实验室（Three.js + Vite，开发中）      │
+│  physics-lab/   3D 虚拟物理实验室（Three.js + cannon-es，开发中） │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 渲染层与仿真内核完全解耦：内核产出离散时间步的机器人状态序列，序列化成 JSON 后由 Three.js 侧回放。这意味着可以在不改前端的情况下替换仿真后端，也可以在不跑仿真的情况下用前端预录数据做交互实验。
@@ -89,6 +95,11 @@ rl/                 强化学习 / 模仿学习
   envs.py                   Gym 风格导航环境（可选通信耦合奖励）
   policy.py                 高斯 MLP 策略（numpy 实现，含反传）
   algo.py                   REINFORCE（带基线）+ DAgger 风格模仿学习
+design/             元器件级机器人构型设计（AI for robotics）
+  components.py             元器件库：连杆 / 关节 / 执行器 / 接触点 / 传感器挂载
+  config.py                 RobotDesign 校验 + JSON 序列化 + 随机构型生成器 + 预设
+  builder.py                SimRobot：树状 FK / 雅可比 / IK / 执行器步进 / 环境交互
+  locomotion.py             步态控制器：足端落点取 3DGS 地形高度
 tests/              单元测试与仿真场景
 assets/             3DGS 样例数据 · 配置 · Three.js 前端
   preview.html              Three.js 渲染与交互前端
@@ -98,6 +109,16 @@ assets/             3DGS 样例数据 · 配置 · Three.js 前端
     legged_gym/             Legged Gym 地形生成参考（ETH Zurich）
 external/jumper/    22-DoF crab 机器人 AI 工具链（git submodule）
 external/splatshop/ 3DGS 场景编辑器（git submodule，m-schuetz/Splatshop）
+
+# —— 浏览器端交互式虚拟实验室（前端子项目，独立工程化）——
+chemlab/            3D 虚拟化学实验室（Three.js + Vite Web 应用，开发中）
+  package.json             子项目依赖与脚本（vite dev / build / preview）
+  src/                     应用源码（脚手架，待填充）
+  public/                  静态资源（脚手架，待填充）
+physics-lab/        3D 虚拟物理实验室（Three.js + cannon-es 物理引擎，开发中）
+  vendor/                  三方库本地副本（three.module.js r160、cannon-es.js）
+  js/                      应用源码目录（core / equipment / experiments / scene / ui / utils，脚手架）
+  css/  docs/  assets/     样式、文档、资源（脚手架，待填充）
 ```
 
 ---
@@ -366,6 +387,46 @@ python -m http.server -d external/splatshop 8000
 
 ---
 
+## 元器件级构型设计（`design/`）
+
+`robots/` 提供固定构型的真实机器人；`design/` 解决相反的问题——**构型本身是研究对象**。从元器件（连杆 / 关节 / 执行器 / 接触点 / 传感器挂载）出发搭建任意树状构型，经结构校验（单根 / 树状 / 无环）后编译成 `SimRobot`，与 3DGS 世界做接触、碰撞与行走交互；构型可 JSON 序列化，也可由 `random_design` 程序化生成（形态搜索原语）。
+
+```python
+from design import Link, Joint, Actuator, ContactPoint, SensorMount
+from design import RobotDesign, SimRobot, GaitController, random_design
+
+# 1) 组装元器件 → 构型
+d = RobotDesign(name="MyBot")
+d.links.append(Link(name="body", mass=2.0, size=(0.3, 0.15, 0.06), is_root=True))
+d.joints.append(Joint(name="hip", parent="body", child="thigh",
+                      axis="y", origin=np.array([0.15, 0.08, 0]),
+                      limits=(-1.5, 1.5)))
+d.links.append(Link(name="thigh", mass=0.3, shape="cylinder", size=(0.02, 0.2)))
+d.actuators.append(Actuator(joint="hip", torque_limit=20.0))
+d.contact_points.append(ContactPoint(name="foot", link="thigh",
+                                     offset=np.array([0, 0, -0.2])))
+d.validate()                      # 结构校验
+d.save("my_bot.json")             # 序列化分享
+
+# 2) 编译 → 与 3DGS 世界交互
+robot = SimRobot(d, base_position=np.array([0, 0, 0.3]))
+robot.snap_contacts_to_ground(env)             # 贴地
+robot.update_contacts(env)                     # 接触判定
+pos, orn = robot.mount_pose(...)               # 传感器挂载 → sensors/comm
+
+# 3) 步态行走（足端落点取重建地形高度）
+gait = GaitController(robot, env, stride=0.05)
+for _ in range(200):
+    gait.step(0.02, heading=0.0)
+
+# 4) 随机构型（形态搜索）
+d_rand = random_design(seed=0)   # 2–6 腿 × 2–3 关节
+```
+
+设计细节见 [docs/design-module-design.md](docs/design-module-design.md)。
+
+---
+
 ## 模块一览
 
 | 模块 | 说明 |
@@ -406,6 +467,12 @@ python -m http.server -d external/splatshop 8000
 | `rl.envs` | Gym 风格导航环境（支持通信耦合奖励） |
 | `rl.policy` | 高斯 MLP 策略（numpy 实现） |
 | `rl.algo` | REINFORCE（带基线）与 DAgger 风格模仿学习 |
+| `design.components` | 元器件库：Link / Joint / Actuator / ContactPoint / SensorMount |
+| `design.config` | RobotDesign 构型校验 + JSON + random_design + 预设构型 |
+| `design.builder` | SimRobot：FK / 雅可比 / 阻尼 IK / PD 执行器 / 3DGS 接触 |
+| `design.locomotion` | GaitController：通用步态（tripod/trot），足端落在重建地形上 |
+| `chemlab` | 3D 虚拟化学实验室前端子项目（Three.js + Vite，脚手架） |
+| `physics-lab` | 3D 虚拟物理实验室前端子项目（Three.js + cannon-es，脚手架） |
 
 ---
 
@@ -426,6 +493,7 @@ python -m http.server -d external/splatshop 8000
 - `test_sensors` — 相机光学模型（含 iToF 相位卷绕 vs 单目真值的对照组）
 - `test_rl` — 强化学习 / 模仿学习（含"训练必须改进"的对照组断言）
 - `test_comm_sionna` — Sionna RT 射线追踪适配器（未安装 sionna 时自动跳过；含 FSPL 对照）
+- `test_design` — 元器件构型设计（雅可比/IK 数值对照 + 3DGS 接触/行走交互）
 
 ---
 
@@ -438,6 +506,28 @@ python -m http.server -d external/splatshop 8000
 - [Jumper](https://github.com/KingKongRobotics/jumper-design) — 22-DoF crab 机器人 AI 工具链
 - [Splatshop](https://github.com/m-schuetz/Splatshop) — 3DGS 场景编辑器
 - [Sionna](https://nvlabs.github.io/sionna/) — NVIDIA 可微分射线追踪无线仿真
+- [cannon-es](https://github.com/pmndrs/cannon-es) — `physics-lab/` 使用的轻量物理引擎
+
+---
+
+## 浏览器端交互式虚拟实验室（前端子项目）
+
+除了机器人仿真内核，平台还在浏览器端探索**交互式虚拟实验室**方向：用 Three.js 把"在真实重建场景里做实验"的体验做成可直接操作的 Web 应用。两个子项目独立于 Python 内核，各自维护 `package.json` / vendor 依赖，定位与 `assets/preview.html` 同源（都是 Three.js 前端），但走 Vite 工程化、按学科独立组织。
+
+| 子项目 | 技术栈 | 定位 | 状态 |
+|---|---|---|---|
+| `chemlab/` | Three.js 0.180 + Vite 7 | 3D 虚拟化学实验室，网页交互式实验 | 脚手架（`src/` `public/` 待填充） |
+| `physics-lab/` | Three.js r160 + cannon-es | 3D 虚拟物理实验室，含物理引擎交互 | 脚手架（`js/` 目录结构已规划，源码待填充） |
+
+两者目前均处于脚手架阶段：依赖与目录结构已就位，业务源码尚未写入。`physics-lab/` 的 `vendor/` 目录内附了 three.js (r160) 与 cannon-es 物理引擎的本地副本，并按 `core / equipment / experiments / scene / ui / utils` 规划了源码分层——这一分层与机器人仿真内核（core / robots / control / interaction）的职责划分思路一致：核心引擎、设备/对象、实验编排、场景、交互 UI、工具各成一层。
+
+```bash
+# 在子项目目录下用 Vite 启动开发服务器（需 Node.js）
+cd chemlab && npm install && npm run dev      # http://localhost:5173
+cd physics-lab                                # 纯静态 vendor，可直接用任意静态服务器预览
+```
+
+> 这两个子项目与 Python 仿真内核**解耦**：它们不依赖 `rtg132` 环境，运行在浏览器/Node.js 侧，未来可通过 JSON 数据或 HTTP 接口与内核联动，也可独立作为教学/演示工具使用。
 
 ---
 
@@ -448,5 +538,7 @@ python -m http.server -d external/splatshop 8000
 An **experimental platform** that studies swarm coordination, inter-robot communication, and robot-environment interaction by placing real robot models inside **high-fidelity 3D reconstructions** (3D Gaussian Splatting) rendered on a **Three.js** front end.
 
 The platform is organized as a Python simulation kernel (kinematics, gait planning, terrain adaptation, collision) plus a Three.js rendering / interaction layer (`assets/preview.html`), decoupled via JSON animation data. The reconstruction serves as the robot's environment, the URDF models keep the robots physically credible, and on top of that the platform targets the problems that are expensive to reproduce in the physical world: **swarm behavior, communication constraints, and interaction with complex reconstructed terrain**.
+
+Two browser-side **interactive virtual-lab front ends** (`chemlab/` — 3D chemistry lab, `physics-lab/` — 3D physics lab with cannon-es) are scaffolded as separate Vite/Three.js sub-projects, decoupled from the Python kernel.
 
 See the Chinese section above for the full module reference, quick start, and design rationale.

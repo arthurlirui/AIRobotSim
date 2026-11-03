@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三维物理实验室 · Physics Lab 3D</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="scene-canvas"></canvas>
+
+  <!-- 顶部工具栏 -->
+  <header id="toolbar">
+    <div class="brand">⚗️ 物理实验室 <span class="sub">Physics Lab 3D</span></div>
+    <div class="tb-group">
+      <button id="btn-play" class="tb-btn primary" title="运行 / 暂停 (空格)">▶ 运行</button>
+      <select id="speed-select" class="tb-select" title="仿真倍速">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+      </select>
+      <button id="btn-reset" class="tb-btn" title="重置全部">↺ 重置</button>
+    </div>
+    <div class="tb-group" id="view-presets">
+      <button class="tb-btn" data-view="overview">🌐 全景</button>
+      <button class="tb-btn" data-view="mechanics">力学区</button>
+      <button class="tb-btn" data-view="optics">光学区</button>
+      <button class="tb-btn" data-view="electricity">电学区</button>
+      <button class="tb-btn" data-view="waves">波学区</button>
+      <button class="tb-btn" data-view="thermal">热学区</button>
+    </div>
+    <div class="tb-group">
+      <button id="btn-dark" class="tb-btn" title="暗室模式（光学实验推荐）">🌙 暗室</button>
+      <button id="btn-save" class="tb-btn" title="保存实验场景">💾 保存</button>
+      <button id="btn-load" class="tb-btn" title="加载实验场景">📂 加载</button>
+      <button id="btn-help" class="tb-btn" title="使用帮助">❓</button>
+    </div>
+  </header>
+
+  <!-- 左侧：设备仓库 -->
+  <aside id="equip-panel" class="panel">
+    <div class="panel-title">🧰 设备仓库</div>
+    <div id="equip-tabs">
+      <button class="etab active" data-cat="mechanics">力学</button>
+      <button class="etab" data-cat="optics">光学</button>
+      <button class="etab" data-cat="electricity">电学</button>
+      <button class="etab" data-cat="waves">波动</button>
+      <button class="etab" data-cat="thermal">热学</button>
+      <button class="etab" data-cat="measurement">测量</button>
+    </div>
+    <div id="equip-list"></div>
+  </aside>
+
+  <!-- 右侧：属性 / 数据 / 指导 选项卡 -->
+  <aside id="right-panel" class="panel">
+    <div id="right-tabs">
+      <button class="rtab active" data-tab="props">⚙️ 属性</button>
+      <button class="rtab" data-tab="data">📊 数据</button>
+      <button class="rtab" data-tab="guide">📖 指导</button>
+    </div>
+    <div id="tab-props" class="rtab-body">
+      <div id="props-empty" class="empty-hint">点击场景中的设备查看和调整其参数</div>
+      <div id="props-content" style="display:none"></div>
+    </div>
+    <div id="tab-data" class="rtab-body" style="display:none">
+      <div class="data-actions">
+        <select id="data-source" class="tb-select" title="选择记录来源（对应选中设备）"></select>
+        <button id="btn-record" class="tb-btn small">＋ 记录一行</button>
+        <button id="btn-clear-data" class="tb-btn small">🗑 清空</button>
+        <button id="btn-export-csv" class="tb-btn small">⬇ CSV</button>
+      </div>
+      <div id="data-table-wrap"><table id="data-table"></table></div>
+      <div class="plot-title">绘图（选择 X / Y 列）</div>
+      <div class="plot-controls">
+        <select id="plot-x" class="tb-select"></select>
+        <select id="plot-y" class="tb-select"></select>
+        <label class="chk"><input type="checkbox" id="plot-fit" checked> 线性拟合</label>
+      </div>
+      <canvas id="plot-canvas" width="340" height="220"></canvas>
+      <div id="fit-result" class="fit-result"></div>
+    </div>
+    <div id="tab-guide" class="rtab-body" style="display:none">
+      <div id="guide-list"></div>
+      <div id="guide-content"></div>
+    </div>
+  </aside>
+
+  <!-- 底部状态栏 -->
+  <footer id="statusbar">
+    <span id="status-info">就绪 · 左键选择/拖拽设备 · 右键旋转视角 · 滚轮缩放</span>
+    <span id="fps"></span>
+    <span id="sim-clock">t = 0.00 s</span>
+  </footer>
+
+  <div id="toast-container"></div>
+  <div id="help-modal" class="modal" style="display:none">
+    <div class="modal-box">
+      <h2>使用帮助</h2>
+      <ul>
+        <li><b>选择设备</b>：左键点击设备本体 → 右侧「属性」面板调参数</li>
+        <li><b>移动设备</b>：按住设备拖拽（限制在其台面内）；释放后参数保持</li>
+        <li><b>视角</b>：右键/空白处拖拽旋转，滚轮缩放；工具栏可一键飞到各分区</li>
+        <li><b>做实验</b>：「📖 指导」选择实验 → 点「一键布置器材」→ 按步骤操作，用测量工具读数</li>
+        <li><b>记录数据</b>：选中设备后到「📊 数据」页记录读数 → 绘图/拟合 → 导出 CSV</li>
+        <li><b>快捷键</b>：空格 = 运行/暂停；Delete = 删除选中设备</li>
+      </ul>
+      <button class="tb-btn primary" onclick="document.getElementById('help-modal').style.display='none'">知道了</button>
+    </div>
+  </div>
+</div>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/", "cannon-es": "./vendor/cannon-es.js" } }
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

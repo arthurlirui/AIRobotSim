@@ -16,6 +16,8 @@ def main():
     from tests import test_comm_geometric
     from tests import test_mobile_robots, test_sensors, test_rl
     from tests import test_comm_sionna
+    from tests import test_design
+    from tests import test_algorithm_platform
 
     print("=" * 60)
     print("  AIRobotSim — 3D Gaussian Splatting Robot Simulation")
@@ -42,6 +44,8 @@ def main():
         ("Camera Optical Models", test_sensors.run),
         ("RL / Imitation Learning", test_rl.run),
         ("Comm Sionna RT (Layer 2)", test_comm_sionna.run),
+        ("Morphology Design Module", test_design.run),
+        ("Algorithm Platform (SLAM/Nav/Swarm/Det)", test_algorithm_platform.run),
     ]
     failed = []
     for label, fn in modules:

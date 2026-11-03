@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D 虚拟化学实验室</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #141a22; color: #e8eef4; }
+    #app { display: flex; width: 100%; height: 100%; }
+    #viewport { flex: 1; position: relative; min-width: 0; }
+    #viewport canvas { display: block; }
+    .panel { position: absolute; background: rgba(16, 22, 30, 0.92); border: 1px solid #2c3a4a; border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(6px); font-size: 13px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+    /* 左侧试剂架 */
+    #reagentPanel { left: 12px; top: 12px; bottom: 12px; width: 218px; display: flex; flex-direction: column; overflow: hidden; }
+    #reagentPanel h3, #apparatusPanel h3, #logPanel h3 { font-size: 13px; color: #8fd0ff; margin-bottom: 8px; letter-spacing: 1px; }
+    #reagentTabs { display: flex; gap: 4px; margin-bottom: 6px; }
+    .rtab { flex: 1; padding: 4px 0; text-align: center; font-size: 12px; border: 1px solid #2c3a4a; border-radius: 6px; cursor: pointer; background: #1a2430; }
+    .rtab.active { background: #2a5a8a; border-color: #4a8ac0; }
+    #reagentList, #apparatusList { flex: 1; overflow-y: auto; padding-right: 4px; }
+    #reagentList::-webkit-scrollbar, #apparatusList::-webkit-scrollbar, #logContent::-webkit-scrollbar { width: 6px; }
+    #reagentList::-webkit-scrollbar-thumb, #apparatusList::-webkit-scrollbar-thumb, #logContent::-webkit-scrollbar-thumb { background: #3a4a5a; border-radius: 3px; }
+    .reagent-item { display: flex; align-items: center; gap: 8px; padding: 5px 6px; margin-bottom: 3px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+    .reagent-item:hover { background: #1e3448; border-color: #3a6a9a; }
+    .reagent-item.selected { background: #2a4a6a; border-color: #5a9ad0; }
+    .swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #556; flex-shrink: 0; }
+    .rname { flex: 1; font-size: 12px; line-height: 1.25; }
+    .rname small { display: block; color: #7a8a9a; font-size: 10px; }
+    .haz { color: #e0a030; font-size: 10px; }
+    /* 右侧仪器栏 */
+    #apparatusPanel { right: 12px; top: 12px; width: 200px; max-height: 46%; display: flex; flex-direction: column; overflow: hidden; }
+    .app-item { display: flex; align-items: center; padding: 5px 8px; margin-bottom: 3px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    .app-item:hover { background: #1e3448; }
+    .app-item.selected { background: #2a4a6a; }
+    /* 顶部实验手册 */
+    #manualPanel { right: 228px; top: 12px; left: 246px; max-height: 55%; overflow: hidden; display: none; flex-direction: column; }
+    #manualPanel.open { display: flex; }
+    #manualPanel h3 { font-size: 14px; color: #ffd88a; margin-bottom: 4px; }
+    #manualPanel .obj { font-size: 12px; color: #aab8c8; margin-bottom: 8px; }
+    #expSteps { flex: 1; overflow-y: auto; }
+    .step { display: flex; gap: 8px; padding: 5px 6px; margin-bottom: 3px; border-radius: 6px; font-size: 12px; align-items: flex-start; }
+    .step .num { width: 18px; height: 18px; border-radius: 50%; background: #2c3a4a; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; margin-top: 1px; }
+    .step.current { background: #24344a; outline: 1px solid #4a7aaa; }
+    .step.done { opacity: 0.5; }
+    .step.done .num { background: #2a7a4a; }
+    /* 底部观察日志 */
+    #logPanel { left: 246px; right: 228px; bottom: 12px; height: 168px; display: flex; flex-direction: column; }
+    #logContent { flex: 1; overflow-y: auto; font-size: 12px; line-height: 1.55; color: #b8ccd8; }
+    #logContent .rxn { color: #8fe0a0; }
+    #logContent .warn { color: #e0a060; }
+    /* 选中对象操作条 */
+    #actionBar { left: 50%; transform: translateX(-50%); bottom: 200px; display: none; gap: 6px; align-items: center; }
+    #actionBar.open { display: flex; }
+    #actionBar .alabel { font-size: 12px; color: #8fd0ff; margin-right: 4px; }
+    button.act { padding: 5px 10px; border-radius: 6px; border: 1px solid #3a5a7a; background: #1e3248; color: #d8e8f4; font-size: 12px; cursor: pointer; }
+    button.act:hover { background: #2a4a6a; }
+    button.act.danger { border-color: #7a3a3a; background: #48201e; }
+    button.act.hot { border-color: #8a5a2a; background: #4a2e14; }
+    /* 检视面板 */
+    #inspectPanel { right: 228px; bottom: 12px; width: 260px; display: none; }
+    #inspectPanel.open { display: block; }
+    #inspectPanel h3 { color: #8fd0ff; font-size: 13px; margin-bottom: 6px; }
+    .kv { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; border-bottom: 1px dashed #26323e; }
+    .kv span:first-child { color: #8a9aac; }
+    /* 顶部工具条 */
+    #topbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 5; }
+    #topbar button.act { font-size: 13px; padding: 6px 14px; }
+    /* toast */
+    #toast { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); padding: 8px 16px; background: rgba(30,60,90,0.95); border: 1px solid #4a8ac0; border-radius: 8px; font-size: 13px; display: none; z-index: 20; }
+    /* 实验选择对话框 */
+    #expDialog { position: absolute; inset: 0; background: rgba(8,12,18,0.8); display: none; align-items: center; justify-content: center; z-index: 30; }
+    #expDialog.open { display: flex; }
+    #expDialog .dlg { width: 620px; max-width: 92%; max-height: 84%; background: #141c26; border: 1px solid #3a4f66; border-radius: 12px; padding: 20px; overflow-y: auto; }
+    #expDialog h2 { font-size: 18px; color: #8fd0ff; margin-bottom: 4px; }
+    #expDialog .sub { font-size: 12px; color: #7a8a9a; margin-bottom: 14px; }
+    .exp-card { padding: 10px 12px; border: 1px solid #2c3a4a; border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+    .exp-card:hover { border-color: #5a9ad0; background: #1a2836; }
+    .exp-card .en { font-size: 14px; font-weight: 600; }
+    .exp-card .el { font-size: 11px; color: #7a9aba; margin-bottom: 3px; }
+    .exp-card .eo { font-size: 12px; color: #aab8c8; }
+    #hint { position: absolute; bottom: 190px; left: 50%; transform: translateX(-50%); font-size: 12px; color: #7a8a9a; text-align: center; pointer-events: none; }
+    #buretteCtl { position: absolute; right: 228px; top: 60px; display: none; flex-direction: column; gap: 4px; z-index: 6; }
+    #buretteCtl.open { display: flex; }
+    #buretteCtl button { min-width: 96px; }
+    .bflow { color: #ffd88a; font-size: 11px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="viewport">
+      <div id="topbar">
+        <button class="act" id="btnManual">📖 实验手册</button>
+        <button class="act" id="btnReset">↺ 重置台面</button>
+        <button class="act" id="btnHelp">❓ 帮助</button>
+      </div>
+      <div id="toast"></div>
+      <div id="hint">左键旋转 · 滚轮缩放 · 右键平移 · 点击仪器选中 · 双击操作</div>
+      <div id="buretteCtl" class="panel">
+        <div class="bflow">滴定管阀门</div>
+        <button class="act" data-flow="0">⏹ 关闭</button>
+        <button class="act" data-flow="1">🤏 慢速（滴加）</button>
+        <button class="act" data-flow="2">▶ 中速</button>
+        <button class="act" data-flow="3">⏩ 快速</button>
+      </div>
+
+      <div id="reagentPanel" class="panel">
+        <h3>🧪 试剂架</h3>
+        <div id="reagentTabs">
+          <div class="rtab active" data-tab="aqueous">溶液</div>
+          <div class="rtab" data-tab="solid">固体</div>
+          <div class="rtab" data-tab="indicator">指示剂</div>
+          <div class="rtab" data-tab="liquid">溶剂</div>
+        </div>
+        <div id="reagentList"></div>
+        <div style="font-size:10px;color:#6a7a8a;margin-top:6px;">选中试剂后点击 3D 场景中的容器加入</div>
+      </div>
+
+      <div id="apparatusPanel" class="panel">
+        <h3>⚗️ 仪器栏</h3>
+        <div id="apparatusList"></div>
+        <div style="font-size:10px;color:#6a7a8a;margin-top:6px;">点击仪器添加到台面中央</div>
+      </div>
+
+      <div id="manualPanel" class="panel">
+        <h3 id="expTitle"></h3>
+        <div class="obj" id="expObj"></div>
+        <div id="expSteps"></div>
+      </div>
+
+      <div id="inspectPanel" class="panel">
+        <h3 id="inspTitle">检视</h3>
+        <div id="inspBody"></div>
+      </div>
+
+      <div id="logPanel" class="panel">
+        <h3>📋 观察日志</h3>
+        <div id="logContent"></div>
+      </div>
+
+      <div id="actionBar" class="panel">
+        <span class="alabel" id="abLabel"></span>
+        <span id="abButtons"></span>
+      </div>
+
+      <div id="expDialog">
+        <div class="dlg">
+          <h2>3D 虚拟化学实验室</h2>
+          <div class="sub">基于 Three.js · 程序化建模 · 真实反应规则引擎 —— 选择一个实验开始</div>
+          <div id="expList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
