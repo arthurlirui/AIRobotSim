@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Temp research / scratch
+.tmp_research/
+
+# ZCode session data
+.zcode/
+
+# OS
+Thumbs.db
+.DS_Store
